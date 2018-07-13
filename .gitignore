@@ -1,0 +1,20 @@
+# Ignore most data
+data/human_brain
+data/human_brain2
+data/human_gut
+data/human_heme
+data/human_immume
+data/human_multiple
+data/human_pancreas
+data/human_pbmc
+data/mouse_aorta
+data/mouse_brain
+data/mouse_immune
+
+# Ignore unpublished features
+features/mouse_aorta/u_matrix.txt
+features/mouse_aorta/ave_expr.txt
+features/mouse_immune/u_matrix.txt
+features/mouse_immune/ave_expr.txt
+
+
