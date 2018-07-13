@@ -35,13 +35,13 @@ Run [install.R](https://github.com/FinucaneLab/gene_features/tree/master/code/in
 ## Analysis
 
 First steps:
-- Read in, QC, filter, scale, and normalize data (i.e. [features/mouse\_brain/variablegenes.pdf](https://github.com/FinucaneLab/gene_features/tree/master/mouse_brain/variablegenes.pdf))
+- Read in, QC, filter, scale, and normalize data (i.e. [features/mouse\_brain/variablegenes.pdf](https://github.com/FinucaneLab/gene_features/tree/master/features/mouse_brain/variablegenes.pdf))
 
-- Perform PCA across all cells (where available) or meta-cells or tissues (i.e. [features/mouse\_brain/PCA.pdf](https://github.com/FinucaneLab/gene_features/tree/master/mouse_brain/PCA.pdf))
+- Perform PCA across all cells (where available) or meta-cells or tissues (i.e. [features/mouse\_brain/PCA.pdf](https://github.com/FinucaneLab/gene_features/tree/master/features/mouse_brain/PCA.pdf))
 
 Current output features:
-- Unweighted gene loadings (i.e. [features/mouse\_brain/u\_matrix.txt](https://github.com/FinucaneLab/gene_features/tree/master/mouse_brain/u_matrix.txt))
-- Normalized expression matrices for predefined or identified clusters (i.e. [features/mouse\_brain/ave\_expr.txt](https://github.com/FinucaneLab/gene_features/tree/master/mouse_brain/ave_expr.txt))
+- Unweighted gene loadings (i.e. [features/mouse\_brain/u\_matrix.txt](https://github.com/FinucaneLab/gene_features/tree/master/features/mouse_brain/u_matrix.txt))
+- Normalized expression matrices for predefined or identified clusters (i.e. [features/mouse\_brain/ave\_expr.txt](https://github.com/FinucaneLab/gene_features/tree/master/features/mouse_brain/ave_expr.txt))
 
 Next steps:
 - t-test one vs. all (slow but could run in parallel)?
