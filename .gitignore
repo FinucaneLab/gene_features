@@ -14,7 +14,7 @@ data/mouse_immune
 # Ignore unpublished features
 features/mouse_aorta/u_matrix.txt
 features/mouse_aorta/ave_expr.txt
-features/mouse_immune/u_matrix.txt
-features/mouse_immune/ave_expr.txt
+features/human_gut/u_matrix.txt
+features/human_gut/ave_expr.txt
 
 

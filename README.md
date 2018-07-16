@@ -44,9 +44,9 @@ Current output features:
 - Normalized expression matrices for predefined or identified clusters (i.e. [features/mouse\_brain/ave\_expr.txt](https://github.com/FinucaneLab/gene_features/tree/master/features/mouse_brain/ave_expr.txt))
 
 Next steps:
-- t-test one vs. all (slow but could run in parallel)?
+- t-test one vs. all (slow but could run in parallel; Hilary suggested speed improvement using OLS -- OLS Beta_hat estimator is invariant except for y)
 - WCGNA?
 - Verify clusters without predifined biological classes
 - UMAP (rather than t-SNE) visualizations of clusters
-
+- Correlate genes to PCs and output matrix for biological understanding of PCs, output PC matrices for known clusters
 

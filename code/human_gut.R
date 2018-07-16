@@ -29,13 +29,8 @@ human_gut.annot.ident <- fread("data/human_gut/all.ident.txt", sep = "\t", skip 
 human_gut.annot <- merge(human_gut.annot.ident, human_gut.annot.meta, by = "ident")
 human_gut.annot <- as.data.frame(human_gut.annot)
 row.names(human_gut.annot) <- human_gut.annot$cell
-human_gut <- human_gut[,names(human_gut) %in% human_gut.annot$cell]
-human_gut.annot <- human_gut.annot[gsub(colnames(human_gut),]
-
-test <- as.data.frame(cbind(x = colnames(human_gut))) %>%
-  separate(x, c("A", "B", "C"))
-
-table(human_gut.annot.ident$cell %in% colnames(human_gut))
+human_gut <- human_gut[,colnames(human_gut) %in% human_gut.annot$cell]
+human_gut.annot <- human_gut.annot[colnames(human_gut),]
 
 #' Subset to concise gene set
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
@@ -58,7 +53,7 @@ human_gut.so <- ScaleData(human_gut.so, min.cells.to.block = 1, block.size = 500
 #' Identify overdispersed genes
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 pdf("features/human_gut/variablegenes.pdf")
-human_gut.so <- FindVariableGenes(human_gut.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1)
+human_gut.so <- FindVariableGenes(human_gut.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.5, x.high.cutoff = 20)
 dev.off()
 
 #' Perform PCA by way of partial SVD
@@ -74,12 +69,10 @@ human_gut.so <- FindClusters(object = human_gut.so, reduction.type = "pca", k.pa
 #' Plot PC space to see clusters and other annotations
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 pdf("features/human_gut/PCA.pdf")
-DimPlot(object = human_gut.so, reduction.use = "pca", pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_gut.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_gut.so, reduction.use = "pca", pt.size = 0.5, group.by = "donor")
-DimPlot(object = human_gut.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "donor")
-DimPlot(object = human_gut.so, reduction.use = "pca", pt.size = 0.5, group.by = "library")
-DimPlot(object = human_gut.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "library")
+DimPlot(object = human_gut.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
+DimPlot(object = human_gut.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
+DimPlot(object = human_gut.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "celltype")
+DimPlot(object = human_gut.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "celltype")
 dev.off()
 
 #' Write out projected gene loadings
@@ -89,5 +82,7 @@ write.table(human_gut.u, "features/human_gut/u_matrix.txt", quote = F, row.names
 
 #' Write out normalized expression across specified clusters
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
+human_gut.so <- SetAllIdent(human_gut.so, id = "celltype")
 human_gut.ae <- AverageExpression(human_gut.so, use.scale = TRUE)
 write.table(human_gut.ae, "features/human_gut/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+
