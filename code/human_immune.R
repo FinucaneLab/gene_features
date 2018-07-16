@@ -37,7 +37,7 @@ row.names(human_immune) <- keep[match(row.names(human_immune), s2h.keep$hsymbol)
 
 #' Filter, normalize, and scale data
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- CreateSeuratObject(raw.data = exprs(human_immune), project = "human_immune", min.cells = 5, meta.data = human_immune.annot)
+human_immune.so <- CreateSeuratObject(raw.data = exprs(human_immune), project = "human_immune", min.cells = 5)
 human_immune.so <- FilterCells(human_immune.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
 human_immune.so <- NormalizeData(human_immune.so) # log normalize, scale by library size
 human_immune.so <- ScaleData(human_immune.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
@@ -45,7 +45,7 @@ human_immune.so <- ScaleData(human_immune.so, min.cells.to.block = 1, block.size
 #' Identify overdispersed genes
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 pdf("features/human_immune/variablegenes.pdf")
-human_immune.so <- FindVariableGenes(human_immune.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.5, x.high.cutoff = 20)
+human_immune.so <- FindVariableGenes(human_immune.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.25, x.high.cutoff = 30, x.low.cutoff = 0.05)
 dev.off()
 
 #' Perform PCA by way of partial SVD
@@ -56,15 +56,15 @@ human_immune.so <- ProjectPCA(human_immune.so, do.print = FALSE)
 
 #' Cluster cells in PC space
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- FindClusters(object = human_immune.so, reduction.type = "pca", k.param = 20, dims.use = 1:20, save.SNN = TRUE, resolution = 0.6, force.recalc = TRUE)
+human_immune.so <- FindClusters(object = human_immune.so, reduction.type = "pca", k.param = 20, dims.use = 1:20, save.SNN = FALSE, resolution = 0.6, force.recalc = TRUE)
 
 #' Plot PC space to see clusters and other annotations
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 pdf("features/human_immune/PCA.pdf")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "celltype")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "celltype")
+DimPlot(object = human_immune.so, reduction.use = "pca", pt.size = 0.5, group.by = "ident")
+DimPlot(object = human_immune.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
+DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "orig.ident")
+DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "orig.ident")
 dev.off()
 
 #' Write out projected gene loadings
