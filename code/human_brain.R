@@ -66,7 +66,7 @@ human_brain.so <- ScaleData(human_brain.so, min.cells.to.block = 1, block.size =
 #' Identify overdispersed genes
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 pdf("features/human_brain/variablegenes.pdf")
-human_brain.so <- FindVariableGenes(human_brain.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.5, x.high.cutoff = 20)
+human_brain.so <- FindVariableGenes(human_brain.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.5, x.high.cutoff = 10)
 dev.off()
 
 #' Perform PCA by way of partial SVD
@@ -84,8 +84,10 @@ human_brain.so <- FindClusters(object = human_brain.so, reduction.type = "pca", 
 pdf("features/human_brain/PCA.pdf")
 DimPlot(object = human_brain.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
 DimPlot(object = human_brain.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_brain.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "celltype")
-DimPlot(object = human_brain.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "celltype")
+DimPlot(object = human_brain.so, reduction.use = "pca", pt.size = 0.5, group.by = "annot1")
+DimPlot(object = human_brain.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "annot1")
+DimPlot(object = human_brain.so, reduction.use = "pca", pt.size = 0.5, group.by = "annot2")
+DimPlot(object = human_brain.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "annot2")
 dev.off()
 
 #' Write out projected gene loadings
@@ -95,6 +97,6 @@ write.table(human_brain.u, "features/human_brain/u_matrix.txt", quote = F, row.n
 
 #' Write out normalized expression across specified clusters
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_brain.so <- SetAllIdent(human_brain.so, id = "celltype")
+human_brain.so <- SetAllIdent(human_brain.so, id = "annot1")
 human_brain.ae <- AverageExpression(human_brain.so, use.scale = TRUE)
 write.table(human_brain.ae, "features/human_brain/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")

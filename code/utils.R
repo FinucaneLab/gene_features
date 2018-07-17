@@ -98,3 +98,9 @@ RunUMAP <- function(
   )
   return(object)
 }
+
+# T stat
+my.t.test <- function(c){
+  n <- sqrt(length(c))
+  mean(c)*n/sd(c)
+}
