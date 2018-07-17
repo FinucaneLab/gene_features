@@ -21,8 +21,6 @@ source("code/utils.R")
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
 human_pbmc <- Read10X("data/human_pbmc")
 colnames(human_pbmc) <- gsub("_Cer_", "_", colnames(human_pbmc))
-human_pbmc.annot <- read.table(text = colnames(human_pbmc), header = FALSE, sep = "_", col.names = c("annot1", "annot2", "barcode"))
-row.names(human_pbmc.annot) <- colnames(human_pbmc)
 
 #' Subset to concise gene set
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
@@ -37,7 +35,7 @@ row.names(human_pbmc) <- keep[match(row.names(human_pbmc), s2h.keep$hsymbol),]$E
 
 #' Filter, normalize, and scale data
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pbmc.so <- CreateSeuratObject(raw.data = human_pbmc, project = "human_pbmc", min.cells = 5, meta.data = human_pbmc.annot)
+human_pbmc.so <- CreateSeuratObject(raw.data = human_pbmc, project = "human_pbmc", min.cells = 5)
 human_pbmc.so <- FilterCells(human_pbmc.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
 human_pbmc.so <- NormalizeData(human_pbmc.so) # log normalize, scale by library size
 human_pbmc.so <- ScaleData(human_pbmc.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
@@ -63,10 +61,6 @@ human_pbmc.so <- FindClusters(object = human_pbmc.so, reduction.type = "pca", k.
 pdf("features/human_pbmc/PCA.pdf")
 DimPlot(object = human_pbmc.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
 DimPlot(object = human_pbmc.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_pbmc.so, reduction.use = "pca", pt.size = 0.5, group.by = "annot1")
-DimPlot(object = human_pbmc.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "annot1")
-DimPlot(object = human_pbmc.so, reduction.use = "pca", pt.size = 0.5, group.by = "annot2")
-DimPlot(object = human_pbmc.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "annot2")
 dev.off()
 
 #' Write out projected gene loadings
@@ -76,6 +70,6 @@ write.table(human_pbmc.u, "features/human_pbmc/u_matrix.txt", quote = F, row.nam
 
 #' Write out normalized expression across specified clusters
 #+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pbmc.so <- SetAllIdent(human_pbmc.so, id = "annot1")
+human_pbmc.so <- SetAllIdent(human_pbmc.so)
 human_pbmc.ae <- AverageExpression(human_pbmc.so, use.scale = TRUE)
 write.table(human_pbmc.ae, "features/human_pbmc/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
