@@ -1,86 +1,335 @@
-#' ---
-#' title: "Create gene features from human_pancreas"
-#' author: "Jacob Ulirsch"
-#' date: "July 12, 2018"
-#' ---
-
-#' 
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = FALSE, eval = TRUE
-.libPaths(c(.libPaths(), "/PHShome/cl322/R/x86_64-pc-linux-gnu-library/3.4"))
+# Load libraries
 library(tidyverse)
 library(data.table)
-#library(MUDAN)
 library(BuenColors)
 library(Seurat)
 library(irlba)
-source("code/utils.R")
-#library(reticulate)
-#use_virtualenv("/data/aryee/julirsch/python/venv3/bin/activate", required = TRUE)
+library(Matrix)
+library(future)
+library(reticulate)
+library(ggrastr)
+source("utils.R")
 
-#' Read in data and annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-file <- "data/human_pancreas/GSE85241_cellsystems_dataset_4donors_updated.csv.gz"
-human_pancreas <- data.frame(fread(paste0("zcat < ", file), skip = 1, sep = "\t"))[,-1] %>% 
+# Parameters
+name <- "human_pancreas"
+number_pcs <- 40
+vargenes <- 3000
+clus_res <- 1
+
+# Setup
+dir.create(paste0("../plots/", name))
+
+# Set up parallelization
+# Remember to use htop to delete forgotten forks
+Sys.setenv(R_FUTURE_FORK_ENABLE = T)
+options(future.globals.maxSize = 2048 * 1024^2)
+plan(strategy = "multicore", workers = 16)
+
+# Notes on data:
+# Authors DID NOT provide cell type / cluster IDs for cells
+# Authors provided gene symbols, some are duplicated
+
+# Read in data and annotations
+file <- paste0("../data/", name, "/GSE85241_cellsystems_dataset_4donors_updated.csv.gz")
+mat <- data.frame(fread(cmd = paste0("zcat < ", file), skip = 1, sep = "\t"))[,-1] %>%
   data.matrix() %>% 
   Matrix()
-rownames(human_pancreas) <- data.frame(fread(paste0("zcat < ", file), select = 1, skip = 1, sep = "\t"))[,1] %>%
+rownames(mat) <- data.frame(cmd = fread(paste0("zcat < ", file), select = 1, skip = 1, sep = "\t"))[,1] %>%
   gsub("__.*", "", .)
-file <- "data/human_pancreas/cellnames.txt"
-colnames(human_pancreas) <- read.table(file, sep = "\t")[,1]
-human_pancreas.annot <- as.data.frame(cbind(cell = colnames(human_pancreas), donor = gsub("-.*", "", colnames(human_pancreas)), library = gsub(".*-|_.*", "", colnames(human_pancreas))))
-row.names(human_pancreas.annot) <- human_pancreas.annot$cell
+file <- paste0("../data/", name, "/cellnames.txt")
+mat.annot <-  read_delim(file, delim = " ", col_names = c("cell", "donor", "library", "id")) %>% 
+  data.frame()
+row.names(mat.annot) <- mat.annot$cell
+colnames(mat) <- mat.annot$cell
 
-#' Subset to concise gene set
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-# Subset to concise gene set 
-s2h <- read.table("resources/ensg2symbol.txt", sep = "\t", header = F, stringsAsFactors = F, col.names = c("ENSG", "hsymbol")) 
-keep <- read.table("resources/gene_annot.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "chr", "start", "end"))
-s2h.keep <- merge(s2h, keep, by = "ENSG")
-# Apply to expression matrix
-rowkeep <- row.names(human_pancreas) %in% s2h.keep$hsymbol
-human_pancreas <- human_pancreas[rowkeep,]
-row.names(human_pancreas) <- keep[match(row.names(human_pancreas), s2h.keep$hsymbol),]$ENSG
+# Read in annotations
+keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
 
-#' Filter, normalize, and scale data
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pancreas.so <- CreateSeuratObject(raw.data = human_pancreas, project = "human_pancreas", min.cells = 5, meta.data = human_pancreas.annot)
-human_pancreas.so <- FilterCells(human_pancreas.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
-human_pancreas.so <- NormalizeData(human_pancreas.so) # log normalize, scale by library size
-human_pancreas.so <- ScaleData(human_pancreas.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
+# Filter expression matrix
+rowkeep <- row.names(mat) %in% keep$symbol
+mat <- mat[rowkeep,]
 
-#' Identify overdispersed genes
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_pancreas/variablegenes.pdf")
-human_pancreas.so <- FindVariableGenes(human_pancreas.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1)
-dev.off()
+# Deal with duplicate gene symbols
+mat <- mat[!duplicated(row.names(mat)),]
+dups <- keep %>%
+  dplyr::filter(symbol %in% row.names(mat)) %>%
+  count(symbol) %>%
+  dplyr::filter(n > 1) %>%
+  .$symbol
+keep <- keep %>%
+  group_by(symbol) %>%
+  dplyr::mutate(size = abs(start - end),
+                rank = rank(size))
+matdups <- mat[dups,]
+keepdups <- keep %>%
+  dplyr::filter(rank == 2)
+row.names(matdups) <- keepdups[match(row.names(matdups), keepdups$symbol),]$ENSG
+keepnotdups <- keep %>%
+  dplyr::filter(rank == 1)
+row.names(mat) <- keepnotdups[match(row.names(mat), keepnotdups$symbol),]$ENSG
+mat <- rbind(mat, matdups)
 
-#' Perform PCA by way of partial SVD
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pancreas.so <- RunPCA(human_pancreas.so, do.print = FALSE, pcs.compute = 100)
-human_pancreas.so <- ProjectPCA(human_pancreas.so, do.print = FALSE)
-#RunUMAP(human_pancreas.so, reduction.use = "pca", n_neighbors = 30L, min_dist = 0.3)
+# Add missing genes as sparse rows
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(mat))), i={}, j={})
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(mat)
+mat <- rbind(mat, missing)
 
-#' Cluster cells in PC space
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pancreas.so <- FindClusters(object = human_pancreas.so, reduction.type = "pca", k.param = 20, dims.use = 1:20, save.SNN = TRUE, resolution = 0.6, force.recalc = TRUE)
+# Create Seurat object
+# min.features determined for each dataset
+so <- CreateSeuratObject(counts = mat, project = name, min.features = 200, meta.data = mat.annot)
 
-#' Plot PC space to see clusters and other annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_pancreas/PCA.pdf")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", pt.size = 0.5, group.by = "donor")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "donor")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", pt.size = 0.5, group.by = "library")
-DimPlot(object = human_pancreas.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "library")
-dev.off()
+# Clean up
+rm(mat)
 
-#' Write out projected gene loadings
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pancreas.u <- GetGeneLoadings(human_pancreas.so, use.full = TRUE)
-write.table(human_pancreas.u, "features/human_pancreas/u_matrix.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# QC
+so <- subset(so, 
+             subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
+                      nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
+so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
 
-#' Write out normalized expression across specified clusters
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_pancreas.ae <- AverageExpression(human_pancreas.so, use.scale = TRUE)
-write.table(human_pancreas.ae, "features/human_pancreas/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Identify variable genes
+so <- FindVariableFeatures(so, nfeatures = vargenes)
+
+# Plot variable genes with and without labels
+p <- so@assays$RNA@meta.features %>%
+  dplyr::rename("variable_gene" = vst.variable) %>%
+  ggplot(.) +
+  geom_histogram(aes(x = log10(vst.variance.standardized), fill = variable_gene), bins = 50) +
+  pretty_plot() + 
+  scale_fill_manual(values = jdb_palette("FantasticFox")[c(3,5)]) +
+  xlab("log10 mean-standardized variance")
+p
+ggsave(p, filename = paste0("../plots/", name, "/variablegenes.pdf"), device = cairo_pdf, width = 6, height = 4, family = "Helvetica")
+
+# Run PCA
+so <- RunPCA(so, npcs = 100)
+
+# Project PCA to all genes
+so <- ProjectDim(so, do.center = T)
+
+# Plot Elbow
+p <- cbind("PC" = seq(1:100), "stdev" = so@reductions$pca@stdev) %>%
+  as.tibble() %>%
+  ggplot(., aes(x =  PC, y = stdev)) +
+  geom_point() + 
+  pretty_plot() +
+  ylab("standard deviation") + 
+  xlab("principal components")
+p
+ggsave(p, filename = paste0("../plots/", name, "/pcaelbow.pdf"), device = cairo_pdf, width = 6, height = 4, family = "Helvetica")
+
+# Run ICA
+so <- RunICA(so, nics = number_pcs)
+
+# Project ICA to all genes
+so <- ProjectDim(so, reduction = "ica", do.center = T)
+
+# Cluster cells
+# higher k.param?
+# plot with PCA to verify cluster number? some quantitative metric?
+so <- FindNeighbors(so, dims = 1:number_pcs, nn.eps = 0)
+so <- FindClusters(so, resolution = clus_res, n.start = 100)
+
+# UMAP dim reduction
+so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
+                                     n.neighbors = 10, learning.rate = 0.1, spread = 2)
+
+# Plot UMAP clusters
+clusters.df <- bind_cols(data.frame("cluster" = so@meta.data$seurat_clusters),
+                        data.frame(so@reductions$umap@cell.embeddings)) %>%
+  as.tibble()
+p <- clusters.df %>%
+  ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
+  geom_point_rast(aes(color = cluster), size = 0.5) +
+  scale_color_manual(values = jdb_palette("corona")) +
+  pretty_plot() 
+ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_clusters.pdf"), device = cairo_pdf, width = 6, height = 5, family = "Helvetica")
+
+# Plot PCs on UMAP
+pcs.df <- bind_cols(data.frame(so@reductions$pca@cell.embeddings[,1:24]),
+                        data.frame(so@reductions$umap@cell.embeddings)) %>%
+  as.tibble()
+p <- pcs.df %>%
+  reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
+  dplyr::mutate(value = case_when(value > 3 ~ 3,
+                                  value < -3 ~ -3,
+                                  T ~ value)) %>%
+  dplyr::rename("scores" = value) %>%
+  ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
+  geom_point_rast(aes(color = scores), size = 1) +
+  scale_color_gradientn(colors = jdb_palette("solar_extra")) +
+  pretty_plot() +
+  facet_wrap(~variable, ncol = 4)
+ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_pcs.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
+
+# Plot ICs on UMAP
+ics.df <- bind_cols(data.frame(so@reductions$ica@cell.embeddings[,1:24]),
+                    data.frame(so@reductions$umap@cell.embeddings)) %>%
+  as.tibble()
+p <- ics.df %>%
+  reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
+  dplyr::mutate(value = case_when(value > 3 ~ 3,
+                                  value < -3 ~ -3,
+                                  T ~ value)) %>%
+  dplyr::rename("scores" = value) %>%
+  ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
+  geom_point_rast(aes(color = scores), size = 1) +
+  scale_color_gradientn(colors = jdb_palette("solar_extra")) +
+  pretty_plot() +
+  facet_wrap(~variable, ncol = 4)
+ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_ics.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
+
+# Plot known marker genes on UMAP  
+knownmarker_genes <- keep %>%
+  dplyr::select(ENSG, symbol) %>%
+  dplyr::filter(symbol %in% c("GCG", "INS", "SST", "MAFA", "PPY", "PRSS1", "KRT19", "MAFB", "GSTA2", "GHRL", "ESAM"))
+knownmarkers.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[knownmarker_genes$ENSG,])),
+                        data.frame(so@reductions$umap@cell.embeddings)) %>%
+  as.tibble()
+p <- knownmarkers.df %>%
+  reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
+  merge(., knownmarker_genes, by.x = "variable", by.y = "ENSG") %>%
+  as.tibble() %>%
+  dplyr::mutate(value = case_when(value > 3 ~ 3,
+                          value < -3 ~ -3,
+                          T ~ value)) %>%
+  dplyr::rename("exprs" = value) %>%
+  ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
+  geom_point_rast(aes(color = exprs), size = 1) +
+  scale_color_gradientn(colors = jdb_palette("solar_extra")) +
+  pretty_plot() +
+  facet_wrap(~symbol, ncol = 4)
+ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_knownmarkers.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
+
+# Calculate differentially expressed genes
+# could get t statistics instead (helper function in utils)
+# is t test in log space?
+# include down regulated as separate feature?
+markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = log(2))
+markers <- markers %>%
+  merge(., keep  %>% dplyr::select(ENSG, symbol), by.x = "gene", by.y = "ENSG") %>%
+  as.tibble()
+demarkers <- markers %>% 
+  dplyr::filter(p_val_adj < 0.05, avg_logFC > log(2)) 
+demarkers %>%
+  group_by(cluster) %>% 
+  count()
+demarkers.mat <- demarkers %>%
+  dplyr::mutate(value = 1) %>%
+  dplyr::select(cluster, gene, value) %>%
+  dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
+  cast_sparse(gene, cluster, value)
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(demarkers.mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(demarkers.mat))), i={}, j={})
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(demarkers.mat)
+demarkers.df <- rbind(demarkers.mat, missing) %>%
+  data.frame()
+
+# Plot DE genes on UMAP
+topdegenes <- demarkers %>%
+  group_by(cluster) %>% 
+  top_n(n = 2, wt = avg_logFC)
+topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[degenes$gene,])),
+                             data.frame(so@reductions$umap@cell.embeddings)) %>%
+  as.tibble()
+p <- topdegenes.df %>%
+  reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
+  merge(., knownmarker_genes, by.x = "variable", by.y = "ENSG") %>%
+  as.tibble() %>%
+  dplyr::mutate(value = case_when(value > 3 ~ 3,
+                                  value < -3 ~ -3,
+                                  T ~ value)) %>%
+  dplyr::rename("exprs" = value) %>%
+  ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
+  geom_point_rast(aes(color = exprs), size = 1) +
+  scale_color_gradientn(colors = jdb_palette("solar_extra")) +
+  pretty_plot() +
+  facet_wrap(~symbol, ncol = 4)
+ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
+
+# Calculate PCs within cluster
+PC_within_cluster <- function(so, clus) {
+  so.clus <- subset(so, idents = clus) 
+  if(dim(so.clus)[2] > 100) {
+    so.clus <- RunPCA(so.clus, npcs = 10)
+    so.clus <- ProjectDim(so.clus, do.center = T)
+    so.gl <- so.clus@reductions$pca@feature.loadings.projected
+    colnames(so.gl) <- paste0("Cluster", clus, "_", colnames(so.gl))
+    return(so.gl)
+  }
+}
+clus <- levels(so@meta.data$seurat_clusters)
+so.clus.pcs <- lapply(1:length(clus), function(x) {PC_within_cluster(so, clus[x])})
+so.clus.pcs[sapply(so.clus.pcs, is.null)] <- NULL
+so.clus.pcs <- so.clus.pcs %>%
+  do.call(cbind, .)
+
+# Save Seurat object
+saveRDS(so, paste0("../data/", name, "/so.rds"))
+
+# Write out projected gene loadings across all cells
+so@reductions$pca@feature.loadings.projected %>%
+  data.frame() %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+fwrite(., 
+       "../features/human_pancreas/projected_pcaloadings.txt", 
+       quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write out projected gene loadings within clusters
+so.clus.pcs %>%
+  data.frame() %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         "../features/human_pancreas/projected_pcaloadings_clusters.txt", 
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write out projected gene loadings within pre-defined clusters (where available)
+
+# Write out normalized expression within clusters and acrolss all cells
+human_pancreas.ae <- AverageExpression(so, slot = "scale.data")$RNA
+colnames(human_pancreas.ae) <- paste0("Cluster", colnames(human_pancreas.ae))
+human_pancreas.ae$Allcells <- apply(so@assays$RNA@scale.data, 1, mean)
+human_pancreas.ae %>%
+  data.frame() %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         "../features/human_pancreas/average_expression.txt", 
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write out normalized expression within pre-defined clusters (where available)
+
+# Write differential expression between clusters
+demarkers.df %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         "../features/human_pancreas/diffexprs_genes_clusters.txt", 
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write out ICA across all cells
+so@reductions$ica@feature.loadings.projected %>%
+  data.frame() %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         "../features/human_pancreas/projected_icaloadings.txt", 
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Co-expression stuff
+
+
+
