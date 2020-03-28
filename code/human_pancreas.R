@@ -23,7 +23,7 @@ dir.create(paste0("../plots/", name))
 # Remember to use htop to delete forgotten forks
 Sys.setenv(R_FUTURE_FORK_ENABLE = T)
 options(future.globals.maxSize = 2048 * 1024^2)
-plan(strategy = "multicore", workers = 16)
+plan(strategy = "multicore", workers = 32)
 
 # Notes on data:
 # Authors DID NOT provide cell type / cluster IDs for cells
@@ -206,12 +206,13 @@ p <- knownmarkers.df %>%
 ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_knownmarkers.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
 
 # Calculate differentially expressed genes
-# could get t statistics instead (helper function in utils)
 # is t test in log space?
 # include down regulated as separate feature?
-markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = log(2))
+markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
 markers <- markers %>%
   merge(., keep  %>% dplyr::select(ENSG, symbol), by.x = "gene", by.y = "ENSG") %>%
+  dplyr::mutate(p_val = ifelse(p_val < 10^-200, 10^-200, p_val),
+                tstat = qt(p_val * 2, dim(so)[2] - 2, lower.tail = F) * sign(avg_logFC)) %>%
   as.tibble()
 demarkers <- markers %>% 
   dplyr::filter(p_val_adj < 0.05, avg_logFC > log(2)) 
@@ -230,17 +231,28 @@ row.names(missing) <- notkeep$ENSG
 colnames(missing) <- colnames(demarkers.mat)
 demarkers.df <- rbind(demarkers.mat, missing) %>%
   data.frame()
+markers.mat <- markers %>%
+  dplyr::select(cluster, gene, tstat) %>%
+  dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
+  cast_sparse(gene, cluster, tstat)
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(markers.mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(markers.mat))), i={}, j={})
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(markers.mat)
+markers.df <- rbind(markers.mat, missing) %>%
+  data.frame()
 
 # Plot DE genes on UMAP
 topdegenes <- demarkers %>%
   group_by(cluster) %>% 
   top_n(n = 2, wt = avg_logFC)
-topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[degenes$gene,])),
+topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$gene,])),
                              data.frame(so@reductions$umap@cell.embeddings)) %>%
   as.tibble()
 p <- topdegenes.df %>%
   reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
-  merge(., knownmarker_genes, by.x = "variable", by.y = "ENSG") %>%
+  merge(., keep, by.x = "variable", by.y = "ENSG") %>%
   as.tibble() %>%
   dplyr::mutate(value = case_when(value > 3 ~ 3,
                                   value < -3 ~ -3,
@@ -295,7 +307,7 @@ so.clus.pcs %>%
 
 # Write out projected gene loadings within pre-defined clusters (where available)
 
-# Write out normalized expression within clusters and acrolss all cells
+# Write out normalized expression within clusters and across all cells
 human_pancreas.ae <- AverageExpression(so, slot = "scale.data")$RNA
 colnames(human_pancreas.ae) <- paste0("Cluster", colnames(human_pancreas.ae))
 human_pancreas.ae$Allcells <- apply(so@assays$RNA@scale.data, 1, mean)
@@ -310,13 +322,22 @@ human_pancreas.ae %>%
 
 # Write out normalized expression within pre-defined clusters (where available)
 
-# Write differential expression between clusters
+# Write differential expression (DE genes) between clusters
 demarkers.df %>%
   rownames_to_column(., var = "ENSG") %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
          "../features/human_pancreas/diffexprs_genes_clusters.txt", 
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write differential expression (t-stat) between clusters
+markers.df %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         "../features/human_pancreas/diffexprs_tstat_clusters.txt", 
          quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write out ICA across all cells
@@ -328,8 +349,4 @@ so@reductions$ica@feature.loadings.projected %>%
   fwrite(., 
          "../features/human_pancreas/projected_icaloadings.txt", 
          quote = F, row.names = F, col.names = T, sep = "\t")
-
-# Co-expression stuff
-
-
 
