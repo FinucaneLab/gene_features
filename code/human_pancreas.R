@@ -8,6 +8,7 @@ library(Matrix)
 library(future)
 library(reticulate)
 library(ggrastr)
+library(tidytext)
 source("utils.R")
 
 # Parameters
