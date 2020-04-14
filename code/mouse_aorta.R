@@ -1,92 +1,155 @@
-#' ---
-#' title: "Create gene features from mouse_aorta"
-#' author: "Jacob Ulirsch"
-#' date: "July 12, 2018"
-#' ---
+#------------------------------------------------------SETUP-----------------------------------------------------#
 
-#' 
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = FALSE, eval = TRUE
-.libPaths(c(.libPaths(), "/PHShome/cl322/R/x86_64-pc-linux-gnu-library/3.4"))
+# Load libraries
 library(tidyverse)
 library(data.table)
-#library(MUDAN)
 library(BuenColors)
 library(Seurat)
 library(irlba)
-source("code/utils.R")
-#library(reticulate)
-#use_virtualenv("/data/aryee/julirsch/python/venv3/bin/activate", required = TRUE)
+library(Matrix)
+library(future)
+library(reticulate)
+library(ggrastr)
+library(tidytext)
+source("utils.R")
 
-#' Read in data and annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-file <- "data/mouse_aorta/scRNAseq_aorta_counts.csv.gz"
-mouse_aorta <- data.frame(fread(paste0("zcat < ", file), skip = 0, sep = ","))[,-1] %>% 
-  data.matrix() %>% 
-  Matrix()
-rownames(mouse_aorta) <- data.frame(fread(paste0("zcat < ", file), select = 1:2, skip = 1, sep = ","))[,1] %>%
-  gsub("\\..*", "", .)
-#mouse_aorta.annot <- readRDS("data/mouse_aorta/")
-#mouse_aorta.annot <- as.data.frame(mouse_aorta.annot)
-#row.names(mouse_aorta.annot) <- mouse_aorta.annot$tissue_subcluster
+# Set up parallelization
+# Remember to use htop to delete forgotten forks
+Sys.setenv(R_FUTURE_FORK_ENABLE = T)
+options(future.globals.maxSize = 2048 * 1024^2)
+plan(strategy = "multicore", workers = 32)
 
-#' Identify human homologs and subset to concise gene set
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-# Convert mouse symbols to human symbols
-s2m <- read.table("resources/symbol2ensmusg.txt", sep = "\t", header = F, stringsAsFactors = F, col.names = c("msymbol", "ENSMUSG"))
-m2h <- read.table("resources/ensmusg2ensg.txt", sep = "\t", header = F, stringsAsFactors = F, col.names = c("ENSMUSG", "ENSG"))
-s2h <- merge(s2m, m2h, by = "ENSMUSG")
-# Remove one-to-many homologs
-one2many <- unique(s2h[duplicated(s2h$ENSG),]$ENSG)
-s2h.one2one <- s2h %>%
-  dplyr::filter(ENSG %ni% one2many)
-# Subset to concise gene set 
-keep <- read.table("resources/gene_annot.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "chr", "start", "end"))
-s2h.keep <- merge(s2h.one2one, keep, by = "ENSG")
-# Apply to expression matrix
-rowkeep <- row.names(mouse_aorta) %in% s2h.keep$msymbol
-mouse_aorta <- mouse_aorta[rowkeep,]
-row.names(mouse_aorta) <- s2h.keep[match(row.names(mouse_aorta), s2h.keep$msymbol),]$ENSG
-# Remove duplicates
-rowkeep <- rownames(mouse_aorta) %ni% rownames(mouse_aorta)[duplicated(rownames(mouse_aorta))]
-mouse_aorta <- mouse_aorta[rowkeep,]
+# Parameters
+name <- "mouse_aorta"
+number_pcs <- 40
+vargenes <- 2000
+clus_res <- 0.6
 
-#' Filter, normalize, and scale data
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-mouse_aorta.so <- CreateSeuratObject(raw.data = mouse_aorta, project = "mouse_aorta", min.cells = 5) #, meta.data = mouse_aorta.annot)
-mouse_aorta.so <- FilterCells(mouse_aorta.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
-mouse_aorta.so <- NormalizeData(mouse_aorta.so) # log normalize, scale by library size
-mouse_aorta.so <- ScaleData(mouse_aorta.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
+# Setup
+dir.create(paste0("../plots/", name))
 
-#' Identify overdispersed genes
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/mouse_aorta/variablegenes.pdf")
-mouse_aorta.so <- FindVariableGenes(mouse_aorta.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1)
-dev.off()
+# Notes on data:
+# Authors provide cluster labels and what appears to be the first 2 PCs
+# We'll just use the cluster labels
 
-#' Perform PCA by way of partial SVD
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-mouse_aorta.so <- RunPCA(mouse_aorta.so, do.print = FALSE, pcs.compute = 100)
-mouse_aorta.so <- ProjectPCA(mouse_aorta.so, do.print = FALSE)
-#RunUMAP(mouse_aorta.so, reduction.use = "pca", n_neighbors = 30L, min_dist = 0.3)
+#------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
-#' Cluster cells in PC space
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-mouse_aorta.so <- FindClusters(object = mouse_aorta.so, reduction.type = "pca", k.param = 20, dims.use = 1:20, save.SNN = TRUE, resolution = 0.6, force.recalc = TRUE)
+# Read in data and annotations
+file <- paste0("../data/", name, "/Seurat_Chow_12PCs_outfile.mtx")
+mat <- data.frame(fread(file), row.names=1) %>%
+  data.matrix() %>%
+  Matrix(sparse = TRUE)
+file <- paste0("../data/", name, "/META_DATA_Chow_12PCs_outfile.txt")
+mat.annot <- data.frame(fread(cmd = paste0("zcat < ", file), skip=2))
+colnames(mat.annot) <- c("NAME", "Cluster", "Sub.Cluster", "Average.Intensity")
+row.names(mat.annot) <- make.names(mat.annot$NAME)
 
-#' Plot PC space to see clusters and other annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/mouse_aorta/PCA.pdf")
-DimPlot(object = mouse_aorta.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
-DimPlot(object = mouse_aorta.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
-dev.off()
+# Convert to ENSG
+sym2ensmusg <- read.table("../resources/symbol2ensmusg.txt", header = F, stringsAsFactors = F, col.names = c("symbol", "ENSMUSG"))
+ensmusg2ensg <- read.table("../resources/ensmusg2ensg.txt", header = F, stringsAsFactors = F, col.names = c("ENSMUSG", "ENSG"))
+### Rename and drop duplicates
+ensmusg2ensg <- ensmusg2ensg[!duplicated(ensmusg2ensg$ENSMUSG),]
+row.names(sym2ensmusg) <- sym2ensmusg$symbol
+row.names(ensmusg2ensg) <- ensmusg2ensg$ENSMUSG
+### First Sym -> ENSG
+mat <- merge(mat, sym2ensmusg, by="row.names")
+row.names(mat) <- mat$ENSMUSG
+mat <- mat[, !(names(mat) %in% c("Row.names", "symbol", "ENSMUSG"))]
+### Now ENSG -> ENSMUSG
+mat <- merge(mat, ensmusg2ensg, by="row.names")
+### Drop duplicates again
+mat <- mat[!duplicated(mat$ENSG),]
+row.names(mat) <- mat$ENSG
+mat <- mat[, !(names(mat) %in% c("Row.names", "ENSMUSG", "ENSG"))]
 
-#' Write out projected gene loadings
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-mouse_aorta.u <- GetGeneLoadings(mouse_aorta.so, use.full = TRUE)
-write.table(mouse_aorta.u, "features/mouse_aorta/u_matrix.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Read in annotations
+keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
 
-#' Write out normalized expression across specified clusters
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-#mouse_aorta.so <- SetAllIdent(mouse_aorta.so, id = "class")
-mouse_aorta.ae <- AverageExpression(mouse_aorta.so, use.scale = TRUE)
-write.table(mouse_aorta.ae, "features/mouse_aorta/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Filter expression matrix
+rowkeep <- row.names(mat) %in% keep$ENSG
+mat <- mat[rowkeep,]
+
+# Add missing genes as sparse rows
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(mat))), i={}, j={}) %>%
+  data.frame()
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(mat)
+mat <- rbind(mat, missing)
+
+#--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
+
+# Create Seurat object
+# min.features determined for each dataset
+so <- CreateSeuratObject(counts = mat, project = name, min.features = 200, meta.data = mat.annot)
+
+# Clean up
+rm(mat)
+
+# QC
+so <- subset(so, 
+             subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
+               nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
+so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
+
+# Identify variable genes
+so <- FindVariableFeatures(so, nfeatures = vargenes)
+# Plot variable genes with and without labels
+PlotAndSaveHVG(so, name)
+
+# Run PCA
+so <- RunPCA(so, npcs = 100)
+# Project PCA to all genes
+so <- ProjectDim(so, do.center = T)
+# Plot Elbow
+PlotAndSavePCAElbow(so, 100, name)
+
+# Run ICA
+so <- RunICA(so, nics = number_pcs)
+# Project ICA to all genes
+so <- ProjectDim(so, reduction = "ica", do.center = T)
+
+# Cluster cells
+so <- FindNeighbors(so, dims = 1:number_pcs, nn.eps = 0)
+so <- FindClusters(so, resolution = clus_res, n.start = 100)
+
+# UMAP dim reduction
+so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
+              n.neighbors = 10, learning.rate = 0.1, spread = 2)
+
+# Plot UMAP clusters
+PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)
+# Plot known clusters on UMAP (if applicable)
+PlotAndSaveUMAPClusters(so, so@meta.data$Sub.Cluster, name, suffix = "_pre_def")
+
+# Plot PCs on UMAP
+PlotAndSavePCsOnUMAP(so, name)
+# Plot ICs on UMAP
+PlotAndSaveICsOnUMAP(so, name)
+# Plot known marker genes on UMAP 
+marker_genes <- c("MYH11", "TPM2", "MYL9", "TAGLN", "ACTA2", "C1QA", "PECAM1", "GPIHBP1", "CD52", "RAC2")
+PlotAndSaveKnownMarkerGenesOnUMAP(so, keep, marker_genes, name)
+
+# Save global features
+SaveGlobalFeatures(so, name)
+
+# Compute any cluster dependent features (DE genes, within-cluster PCs, etc.) and save them
+# Seurat clusters
+Idents(object=so) <- "seurat_clusters"
+clus <- levels(so@meta.data$seurat_clusters)
+demarkers <- WithinClusterFeatures(so, clus, name)
+# Pre-defined cluster dependent features (if applicable)
+Idents(object=so) <- "Sub.Cluster"
+clus <- unique(so@meta.data$Sub.Cluster)
+demarkers_pre_def <- WithinClusterFeatures(so, clus, name, suffix = "_pre_def")
+
+# Plot DE genes on UMAP
+PlotAndSaveDEGenesOnUMAP(so, demarkers, name)
+# Plot DE genes from pre-defined clusters on UMAP (if applicable)
+PlotAndSaveDEGenesOnUMAP(so, demarkers_pre_def, name, suffix = "_pre_def")
+
+# Save Seurat object
+saveRDS(so, paste0("../data/", name, "/so.rds"))
+

@@ -130,8 +130,6 @@ so <- RunICA(so, nics = number_pcs)
 so <- ProjectDim(so, reduction = "ica", do.center = T)
 
 # Cluster cells
-# higher k.param?
-# plot with PCA to verify cluster number? some quantitative metric?
 so <- FindNeighbors(so, dims = 1:number_pcs, nn.eps = 0)
 so <- FindClusters(so, resolution = clus_res, n.start = 100)
 
@@ -147,7 +145,7 @@ p <- clusters.df %>%
   ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
   geom_point_rast(aes(color = cluster), size = 0.5) +
   scale_color_manual(values = jdb_palette("corona")) +
-  pretty_plot() 
+  pretty_plot()
 ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_clusters.pdf"), device = cairo_pdf, width = 6, height = 5, family = "Helvetica")
 
 # Plot PCs on UMAP
@@ -207,14 +205,13 @@ p <- knownmarkers.df %>%
 ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_knownmarkers.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
 
 # Calculate differentially expressed genes
-# is t test in log space?
-# include down regulated as separate feature?
 markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
 markers <- markers %>%
   merge(., keep  %>% dplyr::select(ENSG, symbol), by.x = "gene", by.y = "ENSG") %>%
   dplyr::mutate(p_val = ifelse(p_val < 10^-200, 10^-200, p_val),
                 tstat = qt(p_val * 2, dim(so)[2] - 2, lower.tail = F) * sign(avg_logFC)) %>%
   as.tibble()
+#Get upregulated
 demarkers <- markers %>% 
   dplyr::filter(p_val_adj < 0.05, avg_logFC > log(2)) 
 demarkers %>%
@@ -232,6 +229,25 @@ row.names(missing) <- notkeep$ENSG
 colnames(missing) <- colnames(demarkers.mat)
 demarkers.df <- rbind(demarkers.mat, missing) %>%
   data.frame()
+#Get downregulated
+demarkers_down <- markers %>% 
+  dplyr::filter(p_val_adj < 0.05, avg_logFC < -log(2))
+demarkers_down %>%
+  group_by(cluster) %>% 
+  count()
+demarkers_down.mat <- demarkers_down %>%
+  dplyr::mutate(value = 1) %>%
+  dplyr::select(cluster, gene, value) %>%
+  dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
+  cast_sparse(gene, cluster, value)
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(demarkers_down.mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(demarkers_down.mat))), i={}, j={})
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(demarkers_down.mat)
+demarkers_down.df <- rbind(demarkers_down.mat, missing) %>%
+  data.frame()
+#Format continuous
 markers.mat <- markers %>%
   dplyr::select(cluster, gene, tstat) %>%
   dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
@@ -292,9 +308,9 @@ so@reductions$pca@feature.loadings.projected %>%
   rownames_to_column(., var = "ENSG") %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
-fwrite(., 
-       "../features/human_pancreas/projected_pcaloadings.txt", 
-       quote = F, row.names = F, col.names = T, sep = "\t")
+  fwrite(., 
+         paste0("../features/", name, "/projected_pcaloadings.txt"),
+         quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write out projected gene loadings within clusters
 so.clus.pcs %>%
@@ -303,7 +319,7 @@ so.clus.pcs %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
-         "../features/human_pancreas/projected_pcaloadings_clusters.txt", 
+         paste0("../features/", name, "/projected_pcaloadings_clusters.txt"),
          quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write out projected gene loadings within pre-defined clusters (where available)
@@ -318,7 +334,7 @@ human_pancreas.ae %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
-         "../features/human_pancreas/average_expression.txt", 
+         paste0("../features/", name, "/average_expression.txt"),
          quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write out normalized expression within pre-defined clusters (where available)
@@ -329,7 +345,16 @@ demarkers.df %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
-         "../features/human_pancreas/diffexprs_genes_clusters.txt", 
+         paste0("../features/", name, "/diffexprs_genes_clusters.txt"),
+         quote = F, row.names = F, col.names = T, sep = "\t")
+
+# Write differential expression (DE genes) between clusters (downregulated)
+demarkers_down.df %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         paste0("../features/", name, "/diffexprs_down_genes_clusters.txt"),
          quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write differential expression (t-stat) between clusters
@@ -338,7 +363,7 @@ markers.df %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
-         "../features/human_pancreas/diffexprs_tstat_clusters.txt", 
+         paste0("../features/", name, "/diffexprs_tstat_clusters.txt"),
          quote = F, row.names = F, col.names = T, sep = "\t")
 
 # Write out ICA across all cells
@@ -348,6 +373,6 @@ so@reductions$ica@feature.loadings.projected %>%
   as.tibble() %>%
   arrange(factor(ENSG, levels = keep$ENSG)) %>%
   fwrite(., 
-         "../features/human_pancreas/projected_icaloadings.txt", 
+         paste0("../features/", name, "/projected_icaloadings.txt"),
          quote = F, row.names = F, col.names = T, sep = "\t")
 
