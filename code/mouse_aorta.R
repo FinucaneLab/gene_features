@@ -11,6 +11,7 @@ library(future)
 library(reticulate)
 library(ggrastr)
 library(tidytext)
+library(matrixTests)
 source("utils.R")
 
 # Set up parallelization
@@ -44,39 +45,11 @@ mat.annot <- data.frame(fread(cmd = paste0("zcat < ", file), skip=2))
 colnames(mat.annot) <- c("NAME", "Cluster", "Sub.Cluster", "Average.Intensity")
 row.names(mat.annot) <- make.names(mat.annot$NAME)
 
-# Convert to ENSG
-sym2ensmusg <- read.table("../resources/symbol2ensmusg.txt", header = F, stringsAsFactors = F, col.names = c("symbol", "ENSMUSG"))
-ensmusg2ensg <- read.table("../resources/ensmusg2ensg.txt", header = F, stringsAsFactors = F, col.names = c("ENSMUSG", "ENSG"))
-### Rename and drop duplicates
-ensmusg2ensg <- ensmusg2ensg[!duplicated(ensmusg2ensg$ENSMUSG),]
-row.names(sym2ensmusg) <- sym2ensmusg$symbol
-row.names(ensmusg2ensg) <- ensmusg2ensg$ENSMUSG
-### First Sym -> ENSG
-mat <- merge(mat, sym2ensmusg, by="row.names")
-row.names(mat) <- mat$ENSMUSG
-mat <- mat[, !(names(mat) %in% c("Row.names", "symbol", "ENSMUSG"))]
-### Now ENSG -> ENSMUSG
-mat <- merge(mat, ensmusg2ensg, by="row.names")
-### Drop duplicates again
-mat <- mat[!duplicated(mat$ENSG),]
-row.names(mat) <- mat$ENSG
-mat <- mat[, !(names(mat) %in% c("Row.names", "ENSMUSG", "ENSG"))]
+# Convert to ENSG, drop duplicates, and fill in missing genes
+mat <- ConvertToENSGAndProcessMatrix(mat, "mouse_symbol")
 
-# Read in annotations
+# Load this in in case we need it later
 keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
-
-# Filter expression matrix
-rowkeep <- row.names(mat) %in% keep$ENSG
-mat <- mat[rowkeep,]
-
-# Add missing genes as sparse rows
-notkeep <- keep %>%
-  dplyr::filter(ENSG %ni% row.names(mat))
-missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(mat))), i={}, j={}) %>%
-  data.frame()
-row.names(missing) <- notkeep$ENSG
-colnames(missing) <- colnames(mat)
-mat <- rbind(mat, missing)
 
 #--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
 
@@ -139,16 +112,16 @@ SaveGlobalFeatures(so, name)
 # Seurat clusters
 Idents(object=so) <- "seurat_clusters"
 clus <- levels(so@meta.data$seurat_clusters)
-demarkers <- WithinClusterFeatures(so, clus, name)
+demarkers <- WithinClusterFeatures(so, "seurat_clusters", clus, name)
 # Pre-defined cluster dependent features (if applicable)
 Idents(object=so) <- "Sub.Cluster"
 clus <- unique(so@meta.data$Sub.Cluster)
-demarkers_pre_def <- WithinClusterFeatures(so, clus, name, suffix = "_pre_def")
+demarkers_pre_def <- WithinClusterFeatures(so, "Sub.Cluster", clus, name, suffix = "_pre_def")
 
 # Plot DE genes on UMAP
-PlotAndSaveDEGenesOnUMAP(so, demarkers, name)
+PlotAndSaveDEGenesOnUMAP(so, demarkers, name, height = 10, rank_by_tstat = TRUE)
 # Plot DE genes from pre-defined clusters on UMAP (if applicable)
-PlotAndSaveDEGenesOnUMAP(so, demarkers_pre_def, name, suffix = "_pre_def")
+PlotAndSaveDEGenesOnUMAP(so, demarkers_pre_def, name, suffix = "_pre_def", height = 10, rank_by_tstat = TRUE)
 
 # Save Seurat object
 saveRDS(so, paste0("../data/", name, "/so.rds"))

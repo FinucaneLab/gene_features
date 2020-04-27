@@ -27,6 +27,58 @@ my.t.test <- function(c){
   mean(c)*n/sd(c)
 }
 
+### Assumes a sparse dgCMatrix as input
+### Accepts row_id_type = ENSG, ENSMUSG, human_symbol, mouse_symbol
+ConvertToENSGAndProcessMatrix <- function(mat, row_id_type) {
+  ### Convert to ENSG
+  if (row_id_type == "mouse_symbol") {
+    sym2ensmusg <- read.table("../resources/symbol2ensmusg.txt", header = F, stringsAsFactors = F, col.names = c("symbol", "ENSMUSG"))
+    ### Drop rows that don't exist in column
+    mat <- mat[row.names(mat) %in% sym2ensmusg$symbol,]
+    ### Rename
+    idx <- match(row.names(mat), sym2ensmusg$symbol)
+    row.names(mat) <- sym2ensmusg$ENSMUSG[idx]
+    ### Update row type variable
+    row_id_type <- "ENSMUSG"
+  }
+  if (row_id_type == "human_symbol") {
+    sym2ensg <- read.table("../resources/ensg2symbol.txt", header = F, stringsAsFactors = F, col.names = c("ENSG", "symbol"))
+    ### Drop rows that don't exist in column
+    mat <- mat[row.names(mat) %in% sym2ensg$symbol,]
+    ### Rename
+    idx <- match(row.names(mat), sym2ensg$symbol)
+    row.names(mat) <- sym2ensg$ENSG[idx]
+    ### Update row type variable
+    row_id_type <- "ENSG"
+  }
+  if (row_id_type == "ENSMUSG") {
+    ensmusg2ensg <- read.table("../resources/ensmusg2ensg.txt", header = F, stringsAsFactors = F, col.names = c("ENSMUSG", "ENSG"))
+    ### Drop rows that don't exist in column
+    mat <- mat[row.names(mat) %in% ensmusg2ensg$ENSMUSG,]
+    ### Rename
+    idx <- match(row.names(mat), ensmusg2ensg$ENSMUSG)
+    row.names(mat) <- ensmusg2ensg$ENSG[idx]
+    ### Update row type variable
+    row_id_type <- "ENSG"
+  }
+  ### Drop duplicate rows
+  mat <- mat[!duplicated(row.names(mat)),]
+  ### Read in annotations
+  keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
+  ### Filter to genes of interest
+  rowkeep <- row.names(mat) %in% keep$ENSG
+  mat <- mat[rowkeep,]
+  ### Add missing genes
+  notkeep <- keep %>%
+    dplyr::filter(ENSG %ni% row.names(mat))
+  missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(mat))), i={}, j={})
+  row.names(missing) <- notkeep$ENSG
+  colnames(missing) <- colnames(mat)
+  mat <- rbind(mat, missing)
+  ### Return
+  return(mat)
+}
+
 # Plot and save variable genes
 PlotAndSaveHVG <- function(so, name, display = T) {
   p <- so@assays$RNA@meta.features %>%
@@ -65,8 +117,10 @@ PlotAndSaveUMAPClusters <- function(so, clust_col, name, suffix = "", display = 
   p <- clusters.df %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
     geom_point_rast(aes(color = cluster), size = 0.5) +
-    scale_color_manual(values = jdb_palette("corona")) +
-    pretty_plot()
+    scale_color_manual(values = c(jdb_palette("corona"), jdb_palette("corona"))) +
+    pretty_plot() +
+    guides(col = guide_legend(ncol = 1)) +
+    theme(legend.key.size = unit(0.1, 'lines'))
   if(display) {
     plot(p)
   }
@@ -161,14 +215,44 @@ SaveGlobalFeatures <- function(so, name) {
            quote = F, row.names = F, col.names = T, sep = "\t")
 }
 
+# Define fast t-test function
+FindAllMarkers2 <- function(so, clusters) {
+  cluster_levels <- unique(so@meta.data[,clusters])
+  lapply(
+    X = 1:length(cluster_levels),
+    #X = 1:3,
+    FUN = function(x) {
+      print(x)
+      set1 <- so@assays$RNA@data[,so@meta.data[,clusters] == cluster_levels[x]] %>%
+        data.matrix()
+      set2 <- so@assays$RNA@data[,so@meta.data[,clusters] != cluster_levels[x]] %>%
+        data.matrix()
+      out <- row_t_welch(set1, set2) %>%
+        rownames_to_column(var = "ENSG") %>%
+        dplyr::mutate(cluster = as.numeric(x),
+                      avg_logFC = log2(mean.x) - log2(mean.y)) %>%
+        dplyr::rename("p_val" = pvalue, "tstat" = statistic) %>%
+        dplyr::select(cluster, ENSG, avg_logFC, tstat, p_val) %>%
+        dplyr::mutate(avg_logFC = ifelse(is.na(avg_logFC), 0, avg_logFC),
+                      tstat = ifelse(is.na(tstat), 0, tstat),
+                      p_val = ifelse(is.na(p_val), 0, p_val))
+      return(out)
+    }
+  ) %>%
+    bind_rows() %>%
+    dplyr::mutate(p_val = ifelse(p_val < 10^-300, 10^-300, p_val),
+                  p_val_adj = p.adjust(p_val, method = "BH"))
+}
+
 # Big within-cluster features function
-WithinClusterFeatures <- function(so, clus, name, suffix="") {
+WithinClusterFeatures <- function(so, clusters, clus, name, suffix="") {
   # Calculate differentially expressed genes
-  markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
+  #markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
+  markers <- FindAllMarkers2(so, clusters)
   markers <- markers %>%
-    merge(., keep  %>% dplyr::select(ENSG, symbol), by.x = "gene", by.y = "ENSG") %>%
-    dplyr::mutate(p_val = ifelse(p_val < 10^-200, 10^-200, p_val),
-                  tstat = qt(p_val * 2, dim(so)[2] - 2, lower.tail = F) * sign(avg_logFC)) %>%
+    merge(., keep  %>% dplyr::select(ENSG, symbol), by = "ENSG") %>%
+    #dplyr::mutate(p_val = ifelse(p_val < 10^-200, 10^-200, p_val),
+    #              tstat = qt(p_val * 2, dim(so)[2] - 2, lower.tail = F) * sign(avg_logFC)) %>%
     as.tibble()
   #Get upregulated
   demarkers <- markers %>%
@@ -178,9 +262,9 @@ WithinClusterFeatures <- function(so, clus, name, suffix="") {
     count()
   demarkers.mat <- demarkers %>%
     dplyr::mutate(value = 1) %>%
-    dplyr::select(cluster, gene, value) %>%
+    dplyr::select(cluster, ENSG, value) %>%
     dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
-    cast_sparse(gene, cluster, value)
+    cast_sparse(ENSG, cluster, value)
   notkeep <- keep %>%
     dplyr::filter(ENSG %ni% row.names(demarkers.mat))
   missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(demarkers.mat))), i={}, j={})
@@ -196,9 +280,9 @@ WithinClusterFeatures <- function(so, clus, name, suffix="") {
     count()
   demarkers_down.mat <- demarkers_down %>%
     dplyr::mutate(value = 1) %>%
-    dplyr::select(cluster, gene, value) %>%
+    dplyr::select(cluster, ENSG, value) %>%
     dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
-    cast_sparse(gene, cluster, value)
+    cast_sparse(ENSG, cluster, value)
   notkeep <- keep %>%
     dplyr::filter(ENSG %ni% row.names(demarkers_down.mat))
   missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(demarkers_down.mat))), i={}, j={})
@@ -208,9 +292,9 @@ WithinClusterFeatures <- function(so, clus, name, suffix="") {
     data.frame()
   #Format continuous
   markers.mat <- markers %>%
-    dplyr::select(cluster, gene, tstat) %>%
+    dplyr::select(cluster, ENSG, tstat) %>%
     dplyr::mutate(cluster = paste0("Cluster", cluster)) %>%
-    cast_sparse(gene, cluster, tstat)
+    cast_sparse(ENSG, cluster, tstat)
   notkeep <- keep %>%
     dplyr::filter(ENSG %ni% row.names(markers.mat))
   missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(markers.mat))), i={}, j={})
@@ -290,13 +374,22 @@ WithinClusterFeatures <- function(so, clus, name, suffix="") {
 
 # Plot top DE genes on UMAP
 # No option to display because figure is usually large
-PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "") {
-  topdegenes <- demarkers %>%
-    group_by(cluster) %>% 
-    top_n(n = 2, wt = avg_logFC)
-  topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$gene,])),
-                             data.frame(so@reductions$umap@cell.embeddings)) %>%
-    as.tibble()
+PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 10, rank_by_tstat = FALSE) {
+  if (rank_by_tstat) {
+    topdegenes <- demarkers %>%
+      group_by(cluster) %>% 
+      top_n(n = 2, wt = tstat)
+    topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$ENSG,])),
+                               data.frame(so@reductions$umap@cell.embeddings)) %>%
+      as.tibble()
+  } else {
+    topdegenes <- demarkers %>%
+      group_by(cluster) %>% 
+      top_n(n = 2, wt = avg_logFC)
+    topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$ENSG,])),
+                               data.frame(so@reductions$umap@cell.embeddings)) %>%
+      as.tibble()
+  }
   p <- topdegenes.df %>%
     reshape2::melt(id.vars = c("UMAP_1", "UMAP_2")) %>%
     merge(., keep, by.x = "variable", by.y = "ENSG") %>%
@@ -310,6 +403,6 @@ PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "") {
     scale_color_gradientn(colors = jdb_palette("solar_extra")) +
     pretty_plot() +
     facet_wrap(~symbol, ncol = 4)
-  ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes", suffix, ".pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
+  ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes", suffix, ".pdf"), device = cairo_pdf, width = 7, height = height, family = "Helvetica")
 }
 
