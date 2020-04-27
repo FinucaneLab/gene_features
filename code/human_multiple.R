@@ -106,7 +106,7 @@ so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
 # Plot UMAP clusters
 PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)
 # Plot known clusters on UMAP (if applicable)
-PlotAndSaveUMAPClusters(so, so@meta.data$Cluster, name, suffix = "_pre_def")
+PlotAndSaveUMAPClusters(so, so@meta.data$Cluster, name, suffix = "_pre_def", width = 8, height = 7)
 
 # Plot PCs on UMAP
 PlotAndSavePCsOnUMAP(so, name)
@@ -137,4 +137,7 @@ PlotAndSaveDEGenesOnUMAP(so, demarkers_pre_def, name, suffix = "_pre_def", heigh
 
 # Save Seurat object
 saveRDS(so, paste0("../data/", name, "/so.rds"))
+
+
+
 

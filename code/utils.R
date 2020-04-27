@@ -110,13 +110,13 @@ PlotAndSavePCAElbow <- function(so, num_pcs, name, display = T) {
 }
 
 # Plot and save UMAP Clusters
-PlotAndSaveUMAPClusters <- function(so, clust_col, name, suffix = "", display = T) {
+PlotAndSaveUMAPClusters <- function(so, clust_col, name, suffix = "", display = T, raster_dpi = 300, width = 6, height = 5) {
   clusters.df <- bind_cols(data.frame("cluster" = clust_col),
                            data.frame(so@reductions$umap@cell.embeddings)) %>%
     as.tibble()
   p <- clusters.df %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
-    geom_point_rast(aes(color = cluster), size = 0.5) +
+    geom_point_rast(aes(color = cluster), size = 0.5, raster.dpi = raster_dpi) +
     scale_color_manual(values = c(jdb_palette("corona"), jdb_palette("corona"))) +
     pretty_plot() +
     guides(col = guide_legend(ncol = 1)) +
@@ -124,12 +124,11 @@ PlotAndSaveUMAPClusters <- function(so, clust_col, name, suffix = "", display = 
   if(display) {
     plot(p)
   }
-  ggsave(p + theme(legend.position = "right"), filename = paste0("../plots/", name, "/umap_clusters", suffix, ".pdf"), device = cairo_pdf, width = 6, height = 5, family = "Helvetica")
+  ggsave(p + theme(legend.position = "right"), filename = paste0("../plots/", name, "/umap_clusters", suffix, ".pdf"), device = cairo_pdf, width = width, height = height, family = "Helvetica")
 }
 
 # Plot and save PCs on UMAP
-# No option to display because figure is usually large
-PlotAndSavePCsOnUMAP <- function(so, name) {
+PlotAndSavePCsOnUMAP <- function(so, name, display=T, raster_dpi=100) {
   pcs.df <- bind_cols(data.frame(so@reductions$pca@cell.embeddings[,1:24]),
                       data.frame(so@reductions$umap@cell.embeddings)) %>%
     as.tibble()
@@ -140,16 +139,18 @@ PlotAndSavePCsOnUMAP <- function(so, name) {
                                     T ~ value)) %>%
     dplyr::rename("scores" = value) %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
-    geom_point_rast(aes(color = scores), size = 1) +
+    geom_point_rast(aes(color = scores), size = 1, raster.dpi = raster_dpi) +
     scale_color_gradientn(colors = jdb_palette("solar_extra")) +
     pretty_plot() +
     facet_wrap(~variable, ncol = 4)
+  if (display) {
+    plot(p)
+  }
   ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_pcs.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
 }
 
 # Plot and save ICs on UMAP
-# No option to display because figure is usually large
-PlotAndSaveICsOnUMAP <- function(so, name) {
+PlotAndSaveICsOnUMAP <- function(so, name, display=T, raster_dpi=100) {
   ics.df <- bind_cols(data.frame(so@reductions$ica@cell.embeddings[,1:24]),
                       data.frame(so@reductions$umap@cell.embeddings)) %>%
     as.tibble()
@@ -160,16 +161,18 @@ PlotAndSaveICsOnUMAP <- function(so, name) {
                                     T ~ value)) %>%
     dplyr::rename("scores" = value) %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
-    geom_point_rast(aes(color = scores), size = 1) +
+    geom_point_rast(aes(color = scores), size = 1, raster.dpi = raster_dpi) +
     scale_color_gradientn(colors = jdb_palette("solar_extra")) +
     pretty_plot() +
     facet_wrap(~variable, ncol = 4)
+  if (display) {
+    plot(p)
+  }
   ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_ics.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
 }
 
 # Plot and save known marker genes on UMAP
-# No option to display because figure is usually large
-PlotAndSaveKnownMarkerGenesOnUMAP <- function(so, keep, marker_genes, name) {
+PlotAndSaveKnownMarkerGenesOnUMAP <- function(so, keep, marker_genes, name, display=T, raster_dpi=100) {
   knownmarker_genes <- keep %>%
     dplyr::select(ENSG, symbol) %>%
     dplyr::filter(symbol %in% marker_genes)
@@ -185,15 +188,18 @@ PlotAndSaveKnownMarkerGenesOnUMAP <- function(so, keep, marker_genes, name) {
                                     T ~ value)) %>%
     dplyr::rename("exprs" = value) %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
-    geom_point_rast(aes(color = exprs), size = 1) +
+    geom_point_rast(aes(color = exprs), size = 1, raster.dpi = raster_dpi) +
     scale_color_gradientn(colors = jdb_palette("solar_extra")) +
     pretty_plot() +
     facet_wrap(~symbol, ncol = 4)
+  if (display) {
+    plot(p)
+  }
   ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_knownmarkers.pdf"), device = cairo_pdf, width = 7, height = 10, family = "Helvetica")
 }
 
 # Save global features
-SaveGlobalFeatures <- function(so, name) {
+SaveGlobalFeatures <- function(so, name, compress=T) {
   # Write out projected gene loadings across all cells
   so@reductions$pca@feature.loadings.projected %>%
     data.frame() %>%
@@ -213,6 +219,12 @@ SaveGlobalFeatures <- function(so, name) {
     fwrite(., 
            paste0("../features/", name, "/projected_icaloadings.txt"),
            quote = F, row.names = F, col.names = T, sep = "\t")
+  
+  # Compress if directed
+  if (compress) {
+    system(paste0("gzip ../features/", name, "/projected_pcaloadings.txt"))
+    system(paste0("gzip ../features/", name, "/projected_icaloadings.txt"))
+  }
 }
 
 # Define fast t-test function
@@ -245,7 +257,7 @@ FindAllMarkers2 <- function(so, clusters) {
 }
 
 # Big within-cluster features function
-WithinClusterFeatures <- function(so, clusters, clus, name, suffix="") {
+WithinClusterFeatures <- function(so, clusters, clus, name, suffix="", compress=T) {
   # Calculate differentially expressed genes
   #markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
   markers <- FindAllMarkers2(so, clusters)
@@ -368,13 +380,21 @@ WithinClusterFeatures <- function(so, clusters, clus, name, suffix="") {
     fwrite(.,
            paste0("../features/", name, "/diffexprs_tstat_clusters", suffix, ".txt"),
            quote = F, row.names = F, col.names = T, sep = "\t")
+  
+  # Compress if directed
+  if (compress) {
+    system(paste0("gzip ../features/", name, "/projected_pcaloadings_clusters", suffix, ".txt"))
+    system(paste0("gzip ../features/", name, "/average_expression", suffix, ".txt"))
+    system(paste0("gzip ../features/", name, "/diffexprs_genes_clusters", suffix, ".txt"))
+    system(paste0("gzip ../features/", name, "/diffexprs_down_genes_clusters", suffix, ".txt"))
+    system(paste0("gzip ../features/", name, "/diffexprs_tstat_clusters", suffix, ".txt"))
+  }
 
   return(demarkers)
 }
 
 # Plot top DE genes on UMAP
-# No option to display because figure is usually large
-PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 10, rank_by_tstat = FALSE) {
+PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 10, rank_by_tstat = FALSE, display = T, raster_dpi = 100) {
   if (rank_by_tstat) {
     topdegenes <- demarkers %>%
       group_by(cluster) %>% 
@@ -399,10 +419,13 @@ PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 
                                     T ~ value)) %>%
     dplyr::rename("exprs" = value) %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
-    geom_point_rast(aes(color = exprs), size = 1) +
+    geom_point_rast(aes(color = exprs), size = 1, raster.dpi = raster_dpi) +
     scale_color_gradientn(colors = jdb_palette("solar_extra")) +
     pretty_plot() +
     facet_wrap(~symbol, ncol = 4)
+  if (display) {
+    plot(p)
+  }
   ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes", suffix, ".pdf"), device = cairo_pdf, width = 7, height = height, family = "Helvetica")
 }
 
