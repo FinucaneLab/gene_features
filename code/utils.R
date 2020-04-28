@@ -399,6 +399,9 @@ PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 
     topdegenes <- demarkers %>%
       group_by(cluster) %>% 
       top_n(n = 2, wt = tstat)
+    topdegenes <- topdegenes %>%
+      group_by(cluster) %>% 
+      slice(c(1,2), with_ties = F)
     topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$ENSG,])),
                                data.frame(so@reductions$umap@cell.embeddings)) %>%
       as.tibble()
@@ -406,6 +409,9 @@ PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 
     topdegenes <- demarkers %>%
       group_by(cluster) %>% 
       top_n(n = 2, wt = avg_logFC)
+    topdegenes <- topdegenes %>%
+      group_by(cluster) %>% 
+      slice(c(1,2), with_ties = F)
     topdegenes.df <- bind_cols(data.frame(t(so@assays$RNA@scale.data[topdegenes$ENSG,])),
                                data.frame(so@reductions$umap@cell.embeddings)) %>%
       as.tibble()

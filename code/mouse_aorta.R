@@ -28,6 +28,7 @@ clus_res <- 0.6
 
 # Setup
 dir.create(paste0("../plots/", name))
+dir.create(paste0("../features/", name))
 
 # Notes on data:
 # Authors provide cluster labels and what appears to be the first 2 PCs

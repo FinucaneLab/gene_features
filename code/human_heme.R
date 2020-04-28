@@ -1,84 +1,115 @@
-#' ---
-#' title: "Create gene features from human_heme"
-#' author: "Jacob Ulirsch"
-#' date: "July 12, 2018"
-#' ---
+#------------------------------------------------------SETUP-----------------------------------------------------#
 
-#' 
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = FALSE, eval = TRUE
-.libPaths(c(.libPaths(), "/PHShome/cl322/R/x86_64-pc-linux-gnu-library/3.4"))
+# Load libraries
 library(tidyverse)
 library(data.table)
-#library(MUDAN)
 library(BuenColors)
 library(Seurat)
 library(irlba)
-source("code/utils.R")
-#library(reticulate)
-#use_virtualenv("/data/aryee/julirsch/python/venv3/bin/activate", required = TRUE)
+library(Matrix)
+library(future)
+library(reticulate)
+library(ggrastr)
+library(tidytext)
+library(matrixTests)
+source("utils.R")
 
-#' Read in data and annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-file <- "data/human_heme/16populations_RNAcounts.txt"
-human_heme <- data.frame(fread(file, sep = "\t"))[,-1] %>% 
+# Set up parallelization
+# Remember to use htop to delete forgotten forks
+Sys.setenv(R_FUTURE_FORK_ENABLE = T)
+options(future.globals.maxSize = 2048 * 1024^2)
+plan(strategy = "multicore", workers = 32)
+
+# Parameters
+name <- "human_heme"
+
+# Setup
+dir.create(paste0("../plots/", name))
+dir.create(paste0("../features/", name))
+
+# Notes on data:
+# Data is already collapsed across donors
+# Thus, we just report the normalized samples themselves, one v rest logFC, and a few PCs (ICA is crashing for some reason)
+
+#------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
+
+# Read in data and annotations
+file <- paste0("../data/", name, "/16populations_RNAcounts.txt")
+mat <- data.frame(fread(file, sep = "\t"))[,-1] %>% 
   data.matrix() %>% 
-  Matrix()
-rownames(human_heme) <- data.frame(fread(file), select = 1, skip = 1, sep = "\t")[,1]
+  Matrix(sparse = TRUE)
+rownames(mat) <- data.frame(fread(file), select = 1, skip = 1, sep = "\t")[,1]
 
-#' Subset to concise gene set
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-# Subset to concise gene set 
-s2h <- read.table("resources/ensg2symbol.txt", sep = "\t", header = F, stringsAsFactors = F, col.names = c("ENSG", "hsymbol")) 
-keep <- read.table("resources/gene_annot.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "chr", "start", "end"))
-s2h.keep <- merge(s2h, keep, by = "ENSG")
-# Apply to expression matrix
-rowkeep <- row.names(human_heme) %in% s2h.keep$hsymbol
-human_heme <- human_heme[rowkeep,]
-row.names(human_heme) <- keep[match(row.names(human_heme), s2h.keep$hsymbol),]$ENSG
-# Remove duplicates
-rowkeep <- rownames(human_heme) %ni% rownames(human_heme)[duplicated(rownames(human_heme))]
-human_heme <- human_heme[rowkeep,]
+# Convert to ENSG, drop duplicates, and fill in missing genes
+mat <- ConvertToENSGAndProcessMatrix(mat, "human_symbol")
 
-#' Filter, normalize, and scale data
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_heme.so <- CreateSeuratObject(raw.data = human_heme, project = "human_heme", min.cells = 5)
-human_heme.so <- FilterCells(human_heme.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
-human_heme.so <- NormalizeData(human_heme.so) # log normalize, scale by library size
-human_heme.so <- ScaleData(human_heme.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
+# Load this in in case we need it later
+keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
 
-#' Identify overdispersed genes
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_heme/variablegenes.pdf")
-human_heme.so <- FindVariableGenes(human_heme.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1)
-dev.off()
+#--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
 
-#' Perform PCA by way of partial SVD
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_heme.so <- RunPCA(human_heme.so, do.print = FALSE, pcs.compute = 6)
-human_heme.so <- ProjectPCA(human_heme.so, do.print = FALSE)
-#RunUMAP(human_heme.so, reduction.use = "pca", n_neighbors = 30L, min_dist = 0.3)
+so <- CreateSeuratObject(counts = mat, project = name)
+so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so)
 
-#' Cluster cells in PC space
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_heme.so <- FindClusters(object = human_heme.so, reduction.type = "pca", k.param = 5, dims.use = 1:5, save.SNN = TRUE, resolution = 2.0, force.recalc = TRUE)
+# Run PCA
+so <- RunPCA(so, npcs = 15, features = row.names(so))
+# Project PCA to all genes
+so <- ProjectDim(so, do.center = T)
+# Plot Elbow
+PlotAndSavePCAElbow(so, 15, name)
 
-#' Plot PC space to see clusters and other annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_heme/PCA.pdf")
-human_heme.so@meta.data$type <- row.names(human_heme.so@meta.data)
-DimPlot(object = human_heme.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_heme.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_heme.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "type")
-DimPlot(object = human_heme.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "type")
-dev.off()
+# Write out projected gene loadings across all cells
+so@reductions$pca@feature.loadings.projected %>%
+  data.frame() %>%
+  rownames_to_column(., var = "ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(., 
+         paste0("../features/", name, "/projected_pcaloadings.txt"),
+         quote = F, row.names = F, col.names = T, sep = "\t")
+system(paste0("gzip ../features/", name, "/projected_pcaloadings.txt"))
 
-#' Write out projected gene loadings
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_heme.u <- GetGeneLoadings(human_heme.so, use.full = TRUE)
-write.table(human_heme.u, "features/human_heme/u_matrix.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Write out the samples (we name it average_expression for consistency with rest of features)
+so@assays$RNA@scale.data %>%
+  data.frame() %>%
+  rownames_to_column(., var="ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(.,
+         paste0("../features/", name, "/average_expression.txt"),
+         quote = F, row.names = F, col.names = T, sep = "\t")
+system(paste0("gzip ../features/", name, "/average_expression.txt"))
 
-#' Write out normalized expression across specified clusters
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_heme.so <- SetAllIdent(human_heme.so, id = "type")
-human_heme.ae <- AverageExpression(human_heme.so, use.scale = TRUE)
-write.table(human_heme.ae, "features/human_heme/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Compute LogFC as just difference between log transformed scaled samples. We do this to avoid infinities.
+lfc <- lapply(
+  X = 1:16,
+  FUN = function(x) {
+    print(x)
+    set1 <- so@assays$RNA@scale.data[,x] %>%
+      data.matrix()
+    set2 <- so@assays$RNA@scale.data[,c(1:16)[-x]] %>%
+      data.matrix() %>%
+      rowSums() %>%
+      data.matrix()
+    diff = set1 - set2
+    return(diff)
+  }
+) %>%
+  set_names(c(1:16)) %>%
+  bind_rows()
+row.names(lfc) <- row.names(so)
+
+# Write out LFC (we name it as tstat from pre-defined clusters for consistency with the rest of the features)
+lfc %>%
+  rownames_to_column(., var="ENSG") %>%
+  as.tibble() %>%
+  arrange(factor(ENSG, levels = keep$ENSG)) %>%
+  fwrite(.,
+         paste0("../features/", name, "/diffexprs_tstat_clusters_pre_def.txt"),
+         quote = F, row.names = F, col.names = T, sep = "\t")
+system(paste0("gzip ../features/", name, "/diffexprs_tstat_clusters_pre_def.txt"))
+
+# Save Seurat object
+saveRDS(so, paste0("../data/", name, "/so.rds"))
+

@@ -1,79 +1,159 @@
-#' ---
-#' title: "Create gene features from human_immune"
-#' author: "Jacob Ulirsch"
-#' date: "July 12, 2018"
-#' ---
+#------------------------------------------------------SETUP-----------------------------------------------------#
 
-#' 
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = FALSE, eval = TRUE
-.libPaths(c(.libPaths(), "/PHShome/cl322/R/x86_64-pc-linux-gnu-library/3.4"))
+# Load libraries
 library(tidyverse)
 library(data.table)
-#library(MUDAN)
 library(BuenColors)
 library(Seurat)
 library(irlba)
-library(cellrangerRkit)
-source("code/utils.R")
-#library(reticulate)
-#use_virtualenv("/data/aryee/julirsch/python/venv3/bin/activate", required = TRUE)
+library(Matrix)
+library(future)
+library(reticulate)
+library(ggrastr)
+library(tidytext)
+library(matrixTests)
+source("utils.R")
 
-#' Read in data and annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune <- get_matrix_from_h5("data/human_immume/ica_bone_marrow_h5.h5", genome = "GRCh38")
-human_immune.annot <- cbind(donor = gsub("Manton", "", gsub("_.*", "", colnames(human_immune))), library = gsub("-.*", "", gsub(".*HiSeq_", "", colnames(human_immune))))
-row.names(human_immune.annot) <- colnames(human_immune)
+# Set up parallelization
+# Remember to use htop to delete forgotten forks
+Sys.setenv(R_FUTURE_FORK_ENABLE = T)
+options(future.globals.maxSize = 2048 * 1024^2 * 2)
+plan(strategy = "multicore", workers = 24)
+plan(strategy = "sequential")
 
-#' Subset to concise gene set
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-# Subset to concise gene set 
-s2h <- read.table("resources/ensg2symbol.txt", sep = "\t", header = F, stringsAsFactors = F, col.names = c("ENSG", "hsymbol")) 
-keep <- read.table("resources/gene_annot.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "chr", "start", "end"))
-s2h.keep <- merge(s2h, keep, by = "ENSG")
-# Apply to expression matrix
-rowkeep <- row.names(human_immune) %in% s2h.keep$ENSG
-human_immune <- human_immune[rowkeep,]
-row.names(human_immune) <- keep[match(row.names(human_immune), s2h.keep$hsymbol),]$ENSG
+# Parameters
+name <- "human_immune"
+number_pcs <- 40
+vargenes <- 3000
+clus_res <- 0.6
 
-#' Filter, normalize, and scale data
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- CreateSeuratObject(raw.data = exprs(human_immune), project = "human_immune", min.cells = 5)
-human_immune.so <- FilterCells(human_immune.so, subset.names = "nGene", low.thresholds = 500, high.thresholds = Inf)
-human_immune.so <- NormalizeData(human_immune.so) # log normalize, scale by library size
-human_immune.so <- ScaleData(human_immune.so, min.cells.to.block = 1, block.size = 500) # center, scale variance within expression bins
+# Setup
+dir.create(paste0("../plots/", name))
+dir.create(paste0("../features/", name))
 
-#' Identify overdispersed genes
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_immune/variablegenes.pdf")
-human_immune.so <- FindVariableGenes(human_immune.so, do.plot = TRUE, do.text = FALSE, do.contour = FALSE, cex.use = 0.1, num.bin = 40, y.cutoff = 0.25, x.high.cutoff = 30, x.low.cutoff = 0.05)
-dev.off()
+# Notes on data:
+# No annotations provided
 
-#' Perform PCA by way of partial SVD
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- RunPCA(human_immune.so, do.print = FALSE, pcs.compute = 100)
-human_immune.so <- ProjectPCA(human_immune.so, do.print = FALSE)
-#RunUMAP(human_immune.so, reduction.use = "pca", n_neighbors = 30L, min_dist = 0.3)
+#------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
-#' Cluster cells in PC space
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- FindClusters(object = human_immune.so, reduction.type = "pca", k.param = 20, dims.use = 1:20, save.SNN = FALSE, resolution = 0.6, force.recalc = TRUE)
+# Read in data and annotations
+file <- paste0("../data/", name)
+mat <- Read10X(file)
+file <- paste0("../data/", name, "/cells.tsv.gz")
+mat.annot <- data.frame(fread(cmd = paste0("zcat < ", file)))
+colnames(mat) <- mat.annot$cellkey
 
-#' Plot PC space to see clusters and other annotations
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-pdf("features/human_immune/PCA.pdf")
-DimPlot(object = human_immune.so, reduction.use = "pca", pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_immune.so, reduction.use = "pca", dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "ident")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), pt.size = 0.5, group.by = "orig.ident")
-DimPlot(object = human_immune.so, reduction.use = "pca", cols.use = jdb_palette("lawhoops"), dim.1 = 3, dim.2 = 4, pt.size = 0.5, group.by = "orig.ident")
-dev.off()
+# Read in annotations
+keep <- read.table("../resources/gene_annot_jun10.txt", sep = "\t", header = T, stringsAsFactors = F, col.names = c("ENSG", "symbol", "chr", "start", "end", "TSS"))
 
-#' Write out projected gene loadings
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.u <- GetGeneLoadings(human_immune.so, use.full = TRUE)
-write.table(human_immune.u, "features/human_immune/u_matrix.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Filter expression matrix
+rowkeep <- row.names(mat) %in% keep$symbol
+mat <- mat[rowkeep,]
 
-#' Write out normalized expression across specified clusters
-#+ cache = FALSE, message = FALSE, warning = FALSE, echo = TRUE, eval = TRUE
-human_immune.so <- SetAllIdent(human_immune.so, id = "celltype")
-human_immune.ae <- AverageExpression(human_immune.so, use.scale = TRUE)
-write.table(human_immune.ae, "features/human_immune/ave_expr.txt", quote = F, row.names = T, col.names = T, sep = "\t")
+# Deal with duplicate gene symbols
+mat <- mat[!duplicated(row.names(mat)),]
+dups <- keep %>%
+  dplyr::filter(symbol %in% row.names(mat)) %>%
+  count(symbol) %>%
+  dplyr::filter(n > 1) %>%
+  .$symbol
+keep <- keep %>%
+  group_by(symbol) %>%
+  dplyr::mutate(size = abs(start - end),
+                rank = rank(size))
+matdups <- mat[dups,]
+keepdups <- keep %>%
+  dplyr::filter(rank == 2)
+row.names(matdups) <- keepdups[match(row.names(matdups), keepdups$symbol),]$ENSG
+keepnotdups <- keep %>%
+  dplyr::filter(rank == 1)
+row.names(mat) <- keepnotdups[match(row.names(mat), keepnotdups$symbol),]$ENSG
+mat <- rbind(mat, matdups)
+
+# Add missing genes as sparse rows
+notkeep <- keep %>%
+  dplyr::filter(ENSG %ni% row.names(mat))
+missing <- sparseMatrix(dims = c(dim(notkeep)[1], length(colnames(mat))), i={}, j={})
+row.names(missing) <- notkeep$ENSG
+colnames(missing) <- colnames(mat)
+mat <- rbind(mat, missing)
+
+#--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
+
+# Create Seurat object
+# min.features determined for each dataset
+so <- CreateSeuratObject(counts = mat, project = name, min.features = 500)
+
+# Clean up
+rm(mat)
+
+# QC
+so <- subset(so, 
+             subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
+               nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
+so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
+
+# Identify variable genes
+so <- FindVariableFeatures(so, nfeatures = vargenes)
+# Plot variable genes with and without labels
+PlotAndSaveHVG(so, name)
+
+# Run PCA
+so <- RunPCA(so, npcs = 100)
+# Project PCA to all genes
+so <- ProjectDim(so, do.center = T)
+# Plot Elbow
+PlotAndSavePCAElbow(so, 100, name)
+
+# Run ICA
+so <- RunICA(so, nics = number_pcs)
+# Project ICA to all genes
+so <- ProjectDim(so, reduction = "ica", do.center = T)
+
+# Cluster cells
+so <- FindNeighbors(so, dims = 1:number_pcs, nn.eps = 0)
+so <- FindClusters(so, resolution = clus_res, n.start = 100)
+
+# UMAP dim reduction
+so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
+              n.neighbors = 10, learning.rate = 0.1, spread = 2)
+
+# Plot UMAP clusters
+PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)
+# Plot known clusters on UMAP (if applicable)
+PlotAndSaveUMAPClusters(so, so@meta.data$Cluster, name, suffix = "_pre_def", width = 8, height = 7)
+
+# Plot PCs on UMAP
+PlotAndSavePCsOnUMAP(so, name)
+# Plot ICs on UMAP
+PlotAndSaveICsOnUMAP(so, name)
+# Plot known marker genes on UMAP 
+#marker_genes <- c("")
+#PlotAndSaveKnownMarkerGenesOnUMAP(so, keep, marker_genes, name)
+
+# Save global features
+SaveGlobalFeatures(so, name)
+
+# Compute any cluster dependent features (DE genes, within-cluster PCs, etc.) and save them
+# Seurat clusters
+Idents(object=so) <- "seurat_clusters"
+clus <- levels(so@meta.data$seurat_clusters)
+demarkers <- WithinClusterFeatures(so, "seurat_clusters", clus, name)
+
+# Pre-defined cluster dependent features (if applicable)
+Idents(object=so) <- "Cluster"
+clus <- unique(so@meta.data$Cluster)
+demarkers_pre_def <- WithinClusterFeatures(so, "Cluster", clus, name, suffix = "_pre_def")
+
+# Plot DE genes on UMAP
+PlotAndSaveDEGenesOnUMAP(so, demarkers, name, height = 30)
+# Plot DE genes from pre-defined clusters on UMAP (if applicable)
+PlotAndSaveDEGenesOnUMAP(so, demarkers_pre_def, name, suffix = "_pre_def", height = 30)
+
+# Save Seurat object
+saveRDS(so, paste0("../data/", name, "/so.rds"))
+
+
+
+

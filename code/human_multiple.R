@@ -28,6 +28,7 @@ clus_res <- 0.6
 
 # Setup
 dir.create(paste0("../plots/", name))
+dir.create(paste0("../features/", name))
 
 # Notes on data:
 # Bulk data in TPMs

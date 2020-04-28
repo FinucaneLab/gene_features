@@ -28,6 +28,7 @@ clus_res <- 1
 
 # Setup
 dir.create(paste0("../plots/", name))
+dir.create(paste0("../features/", name))
 
 # Notes on data:
 # Authors DID NOT provide cell type / cluster IDs for cells
