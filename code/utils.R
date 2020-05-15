@@ -227,19 +227,97 @@ SaveGlobalFeatures <- function(so, name, compress=T) {
   }
 }
 
-# Define fast t-test function
-FindAllMarkers2 <- function(so, clusters) {
+# Define fast t-test function for sparse matrices
+row_t_welch2 <- function (x, y, alternative = "two.sided", mu = 0, conf.level = 0.95) 
+{
+  force(x)
+  force(y)
+  if (is.vector(x)) 
+    x <- matrix(x, nrow = 1)
+  if (is.vector(y)) 
+    y <- matrix(y, nrow = 1)
+  if (is.data.frame(x) && all(sapply(x, is.numeric))) 
+    x <- data.matrix(x)
+  if (is.data.frame(y) && all(sapply(y, is.numeric))) 
+    y <- data.matrix(y)
+  if (nrow(y) == 1 & nrow(x) > 1) {
+    y <- matrix(y, nrow = nrow(x), ncol = ncol(y), byrow = TRUE)
+  }
+  matrixTests:::assert_equal_nrow(x, y)
+  if (length(alternative) == 1) 
+    alternative <- rep(alternative, length.out = nrow(x))
+  matrixTests:::assert_character_vec_length(alternative, 1, nrow(x))
+  choices <- c("two.sided", "less", "greater")
+  alternative <- choices[pmatch(alternative, choices, duplicates.ok = TRUE)]
+  matrixTests:::assert_all_in_set(alternative, choices)
+  if (length(mu) == 1) 
+    mu <- rep(mu, length.out = nrow(x))
+  matrixTests:::assert_numeric_vec_length(mu, 1, nrow(x))
+  matrixTests:::assert_all_in_closed_interval(mu, -Inf, Inf)
+  if (length(conf.level) == 1) 
+    conf.level <- rep(conf.level, length.out = nrow(x))
+  matrixTests:::assert_numeric_vec_length(conf.level, 1, nrow(x))
+  matrixTests:::assert_all_in_closed_interval(conf.level, 0, 1)
+  mxs <- rowMeans(x, na.rm = F)
+  mys <- rowMeans(y, na.rm = F)
+  mxys <- mxs - mys
+  nxs <- rep.int(ncol(x), nrow(x))
+  nys <- rep.int(ncol(y), nrow(y))
+  nxys <- nxs + nys
+  ####
+  # Rewrite to work with sparse matrices
+  x@x <- x@x - mxs[x@i+1]
+  empty_sum_sq <- (dim(x)[2] - tabulate(x@i + 1, dim(x)[1])) * mxs^2
+  vxs <- (rowSums(x^2, na.rm = F) + empty_sum_sq) / (nxs - 1)
+  y@x <- y@x - mxs[y@i+1]
+  empty_sum_sq <- (dim(y)[2] - tabulate(y@i + 1, dim(y)[1])) * mys^2
+  vys <- (rowSums(y^2, na.rm = F) + empty_sum_sq) / (nys - 1)
+  #vxs <- rowSums((x - mxs)^2, na.rm = F)/(nxs - 1)
+  #vys <- rowSums((y - mys)^2, na.rm = F)/(nys - 1)
+  ####
+  stderxs <- vxs/nxs
+  stderys <- vys/nys
+  stders <- stderxs + stderys
+  dfs <- stders * stders/(stderxs * stderxs/(nxs - 1) + stderys * 
+                            stderys/(nys - 1))
+  stders <- sqrt(stders)
+  tres <- matrixTests:::do_ttest(mxys, mu, stders, alternative, dfs, conf.level)
+  w1 <- nxs < 2
+  matrixTests:::showWarning(w1, "had less than 2 \"x\" observations")
+  w2 <- !w1 & nys < 2
+  matrixTests:::showWarning(w2, "had less than 2 \"y\" observations")
+  w3 <- stders <= 10 * .Machine$double.eps * pmax(abs(mxs), 
+                                                  abs(mys))
+  matrixTests:::showWarning(w3, "were essentially constant")
+  tres[w1 | w2 | w3, ] <- NA
+  rnames <- rownames(x)
+  if (!is.null(rnames)) 
+    rnames <- make.unique(rnames)
+  data.frame(obs.x = nxs, obs.y = nys, obs.tot = nxys, mean.x = mxs, 
+             mean.y = mys, mean.diff = mxys, var.x = vxs, var.y = vys, 
+             stderr = stders, df = dfs, statistic = tres[, 1], pvalue = tres[, 
+                                                                             2], conf.low = tres[, 3], conf.high = tres[, 4], 
+             alternative = alternative, mean.null = mu, conf.level = conf.level, 
+             stringsAsFactors = FALSE, row.names = rnames)
+}
+
+# Define fast t-test 1 vs all function
+FindAllMarkers2 <- function(so, clusters, type) {
   cluster_levels <- unique(so@meta.data[,clusters])
   lapply(
     X = 1:length(cluster_levels),
     #X = 1:3,
     FUN = function(x) {
       print(x)
-      set1 <- so@assays$RNA@data[,so@meta.data[,clusters] == cluster_levels[x]] %>%
-        data.matrix()
-      set2 <- so@assays$RNA@data[,so@meta.data[,clusters] != cluster_levels[x]] %>%
-        data.matrix()
-      out <- row_t_welch(set1, set2) %>%
+      set1 <- so@assays$RNA@data[,so@meta.data[,clusters] == cluster_levels[x]]
+      set2 <- so@assays$RNA@data[,so@meta.data[,clusters] != cluster_levels[x]]
+      if(type == "sparse") {
+        out <- row_t_welch2(set1, set2)
+      }
+      else {
+        out <- row_t_welch(set1 %>% data.matrix(), set2 %>% data.matrix())
+      }
+      out <- out %>%
         rownames_to_column(var = "ENSG") %>%
         dplyr::mutate(cluster = as.numeric(x),
                       avg_logFC = log2(mean.x) - log2(mean.y)) %>%
@@ -257,10 +335,10 @@ FindAllMarkers2 <- function(so, clusters) {
 }
 
 # Big within-cluster features function
-WithinClusterFeatures <- function(so, clusters, clus, name, suffix="", compress=T) {
+WithinClusterFeatures <- function(so, clusters, clus, name, suffix="", compress=T, type = "dense") {
   # Calculate differentially expressed genes
   #markers <- FindAllMarkers(so, test.use = "t", logfc.threshold = 0)
-  markers <- FindAllMarkers2(so, clusters)
+  markers <- FindAllMarkers2(so, clusters, type)
   markers <- markers %>%
     merge(., keep  %>% dplyr::select(ENSG, symbol), by = "ENSG") %>%
     #dplyr::mutate(p_val = ifelse(p_val < 10^-200, 10^-200, p_val),
