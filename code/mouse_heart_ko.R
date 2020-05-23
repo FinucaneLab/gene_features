@@ -32,7 +32,9 @@ dir.create(paste0("../features/", name))
 
 # Notes on data:
 # No annotations provided
-# Data is provided in batches so we regress out batch effects
+# Data is provided in batches
+# The recommendation is to check for batch confounding, and if there is, run the integration workflow
+# We plot the batches on UMAP and don't see significant batch confounding, so we ignore the batches
 
 #------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
@@ -62,16 +64,16 @@ mat <- do.call("cbind", datalist)
 colnames(mat) <- make.names(colnames(mat), unique=T)
 
 # Make batch indicators
-mat.annot <- matrix(0, nrow = dim(mat)[2], ncol = length(datalist))
+mat.annot <- matrix(0, nrow = dim(mat)[2], ncol = 1)
 curr_batch_start_ind = 1
 for (i in 1:length(datalist)) {
   num_cells <- dim(datalist[[i]])[2]
-  mat.annot[curr_batch_start_ind:(curr_batch_start_ind + num_cells - 1), i] = 1
+  mat.annot[curr_batch_start_ind:(curr_batch_start_ind + num_cells - 1), 1] = toString(i)
   curr_batch_start_ind <- curr_batch_start_ind + num_cells
 }
 mat.annot <- data.frame(mat.annot)
 rownames(mat.annot) <- colnames(mat)
-colnames(mat.annot) = lapply(1:length(datalist), FUN = function(i) paste0("BATCH_ID_", i))
+colnames(mat.annot) = c("BATCH_ID")
 
 
 #--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
@@ -89,7 +91,7 @@ so <- subset(so,
              subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
                nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
 so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
-so <- ScaleData(so, min.cells.to.block = 1, block.size = 500, vars.to.regress = colnames(mat.annot))
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
 
 # Identify variable genes
 so <- FindVariableFeatures(so, nfeatures = vargenes)
@@ -115,6 +117,10 @@ so <- FindClusters(so, resolution = clus_res, n.start = 100)
 # UMAP dim reduction
 so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
               n.neighbors = 20, learning.rate = 0.1, spread = 2)
+
+# Check for batch effects
+PlotAndSaveUMAPClusters(so, so@meta.data$BATCH_ID, name, suffix = "_batch_effects")
+# No batch effects
 
 # Plot UMAP clusters
 PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)

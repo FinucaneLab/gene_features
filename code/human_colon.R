@@ -22,9 +22,9 @@ plan(strategy = "multicore", workers = 32)
 
 # Parameters
 name <- "human_colon"
-number_pcs <- 60
-vargenes <- 3000
-clus_res <- 1.2
+number_pcs <- 40
+vargenes <- 2000
+clus_res <- 1.0
 
 # Setup
 dir.create(paste0("../plots/", name))
@@ -32,7 +32,9 @@ dir.create(paste0("../features/", name))
 
 # Notes on data:
 # No annotations provided
-# Data is provided in batches so we regress out batch effects
+# Data is provided in batches
+# The recommendation is to check for batch confounding, and if there is, run the integration workflow
+# We find significant batch effects so we use Suerat's data integration
 
 #------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
@@ -62,17 +64,16 @@ mat <- do.call("cbind", datalist)
 colnames(mat) <- make.names(colnames(mat), unique=T)
 
 # Make batch indicators
-mat.annot <- matrix(0, nrow = dim(mat)[2], ncol = length(datalist))
+mat.annot <- matrix(0, nrow = dim(mat)[2], ncol = 1)
 curr_batch_start_ind = 1
 for (i in 1:length(datalist)) {
   num_cells <- dim(datalist[[i]])[2]
-  mat.annot[curr_batch_start_ind:(curr_batch_start_ind + num_cells - 1), i] = 1
+  mat.annot[curr_batch_start_ind:(curr_batch_start_ind + num_cells - 1), 1] = toString(i)
   curr_batch_start_ind <- curr_batch_start_ind + num_cells
 }
 mat.annot <- data.frame(mat.annot)
 rownames(mat.annot) <- colnames(mat)
-colnames(mat.annot) = lapply(1:length(datalist), FUN = function(i) paste0("BATCH_ID_", i))
-
+colnames(mat.annot) = c("BATCH_ID")
 
 #--------------------------------------------------COMPUTE FEATURES-------------------------------------------------#
 
@@ -88,13 +89,27 @@ rm(datalist)
 so <- subset(so, 
              subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
                nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
-so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
-so <- ScaleData(so, min.cells.to.block = 1, block.size = 500, vars.to.regress = colnames(mat.annot))
 
-# Identify variable genes
-so <- FindVariableFeatures(so, nfeatures = vargenes)
+# Regress out batch effects
+so.list <- SplitObject(so, split.by = "BATCH_ID")
+for (i in 1:length(so.list)) {
+  so.list[[i]] <- NormalizeData(so.list[[i]])
+  so.list[[i]] <- FindVariableFeatures(so.list[[i]], nfeatures = vargenes)
+}
+so.anchors <- FindIntegrationAnchors(object.list = so.list, dims = 1:30, k.filter=100, anchor.features = vargenes)
+so.integrated <- IntegrateData(anchorset = so.anchors, dims = 1:30, features.to.integrate = rownames(so))
+# This is a bit of a hack, which makes it so that we don't have to change our pipeline
+so@assays$RNA@data <- so.integrated@assays$integrated@data
+
+# No need to normalize an integrated dataset
+# so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
+
+# Variables genes are pre-identified during integration; we don't recompute or plot anything
+so@assays$RNA@var.features <- so.integrated@assays$integrated@var.features
+# so <- FindVariableFeatures(so, nfeatures = vargenes)
 # Plot variable genes with and without labels
-PlotAndSaveHVG(so, name)
+# PlotAndSaveHVG(so, name)
 
 # Run PCA
 so <- RunPCA(so, npcs = 100)
@@ -115,6 +130,10 @@ so <- FindClusters(so, resolution = clus_res, n.start = 100)
 # UMAP dim reduction
 so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.2, n.epochs = 500,
               n.neighbors = 15, learning.rate = 0.1, spread = 2)
+
+# Check for batch effects
+PlotAndSaveUMAPClusters(so, so@meta.data$BATCH_ID, name, suffix = "_batch_effects")
+# Batch effects have been regressed out
 
 # Plot UMAP clusters
 PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)

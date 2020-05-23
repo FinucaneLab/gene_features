@@ -22,7 +22,7 @@ plan(strategy = "multicore", workers = 32)
 
 # Parameters
 name <- "mouse_lung"
-number_pcs <- 60
+number_pcs <- 50
 vargenes <- 2000
 clus_res <- 0.2
 
@@ -33,6 +33,7 @@ dir.create(paste0("../features/", name))
 # Notes on data:
 # Data is provided in batches so we regress out batch effects (we choose sequencing batch instead of amplification batch)
 # Tissues annotations are provided but some are NaN, so we ignore them
+# We see batch effects so we use Seurat's integration workflow
 
 #------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
@@ -77,13 +78,30 @@ rm(datalist)
 so <- subset(so, 
              subset = nFeature_RNA > quantile(so$nFeature_RNA, 0.05) & 
                nFeature_RNA < quantile(so$nFeature_RNA, 0.95))
-so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
-so <- ScaleData(so, min.cells.to.block = 1, block.size = 500, vars.to.regress = c("Seq_batch_ID"))
 
-# Identify variable genes
-so <- FindVariableFeatures(so, nfeatures = vargenes)
+# Regress out batch effects
+so.list <- SplitObject(so, split.by = "Seq_batch_ID")
+for (i in 1:length(so.list)) {
+  print(i)
+  so.list[[i]] <- NormalizeData(so.list[[i]])
+  so.list[[i]] <- FindVariableFeatures(so.list[[i]], nfeatures = vargenes)
+}
+sample_size_list = lapply(so.list, FUN = function(x) dim(x)[2])
+reference_dataset = which.max(sample_size_list)
+so.anchors <- FindIntegrationAnchors(object.list = so.list, dims = 1:30, k.filter=100, anchor.features = vargenes, reference = reference_dataset)
+so.integrated <- IntegrateData(anchorset = so.anchors, dims = 1:30, features.to.integrate = rownames(so))
+# This is a bit of a hack, which makes it so that we don't have to change our pipeline
+so@assays$RNA@data <- so.integrated@assays$integrated@data
+
+# No need to normalize an integrated dataset
+# so <- NormalizeData(so, normalization.method = "LogNormalize", scale.factor = 1000000)
+so <- ScaleData(so, min.cells.to.block = 1, block.size = 500)
+
+# Variables genes are pre-identified during integration; we don't recompute or plot anything
+so@assays$RNA@var.features <- so.integrated@assays$integrated@var.features
+# so <- FindVariableFeatures(so, nfeatures = vargenes)
 # Plot variable genes with and without labels
-PlotAndSaveHVG(so, name)
+# PlotAndSaveHVG(so, name)
 
 # Run PCA
 so <- RunPCA(so, npcs = 100)
@@ -104,6 +122,10 @@ so <- FindClusters(so, resolution = clus_res, n.start = 100)
 # UMAP dim reduction
 so <- RunUMAP(so, dims = 1:number_pcs, min.dist = 0.4, n.epochs = 500,
               n.neighbors = 20, learning.rate = 0.1, spread = 2)
+
+# Check for batch effects
+PlotAndSaveUMAPClusters(so, so@meta.data$Seq_batch_ID, name, suffix = "_batch_effects")
+# Batch effects appear mostly controlled for
 
 # Plot UMAP clusters
 PlotAndSaveUMAPClusters(so, so@meta.data$seurat_clusters, name)
