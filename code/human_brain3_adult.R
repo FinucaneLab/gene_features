@@ -43,7 +43,7 @@ mat <- umi.raw %>%
   Matrix(sparse = TRUE)
 mat.annot <- meta2
 
-# ENSG names have weird suffixes; we subset the names to the first 15 characters (i.e. length of ENSMUSG ID)
+# ENSG names have weird suffixes; we subset the names to the first 15 characters (i.e. length of ENSG ID)
 process_ensg_fxn <- function(s) {
   return(substr(s, 1, 15))
 }
