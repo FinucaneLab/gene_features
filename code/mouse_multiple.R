@@ -31,7 +31,10 @@ dir.create(paste0("../plots/", name))
 dir.create(paste0("../features/", name))
 
 # Notes on data:
-# 
+# DGE is pre-batch-corrected. Furthermore, we use the file that is downsampled to approximately 60,000 high quality cells.
+# This is because I'm having a hard time loading the full data matrix but also because we'd probably downsample anyways, given the scale.
+# Also, cluster annotations are provided, but there are > 600. Meanwhile, there's about 40 tissues.
+# So we use the Tissue annotation as the cluster annotation in the usual pipeline, but at the end we additionally compute the average expression within each of their cluster annotations
 
 #------------------------------------------------LOAD AND FORMAT DATA-----------------------------------------------#
 
