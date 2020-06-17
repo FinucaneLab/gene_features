@@ -34,6 +34,20 @@ Most raw data is in the form of (cell x gene) or (tissue x gene) count or TPM ma
 - [mouse_hemogenicendothelium](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE137116) from [Zhu _et al._](https://doi.org/10.1182/blood.2020004801)
 - [human_retina](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE116106) from [Lu _et al._](https://doi.org/10.1016/j.devcel.2020.04.009)
 - [human_pancreasductal](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131886) from [Qadir _et al._](https://doi.org/10.1073/pnas.1918314117)
+- [mouse_hairfollicle](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE115424) from [Shin _et al._](https://doi.org/10.1016/j.devcel.2020.03.019)
+- [mouse_adipocyte](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE145477) from [Zhong _et al._](https://elifesciences.org/articles/54695)
+- [mouse_muscle](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE143437) from [Micheli _et al._](https://doi.org/10.1016/j.celrep.2020.02.067)
+- [mouse_airway](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-8221) from [Miller _et al._](https://doi.org/10.1016/j.devcel.2020.01.033)
+- [human_thymus](https://zenodo.org/record/3572422) from [Park _et al._](https://doi.org/10.1126/science.aay3224)
+- [human_colon2](https://www.gutcellatlas.org/) from [James _et al._](https://doi.org/10.1038/s41590-020-0602-z)
+- [mouse_endothelium](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-8077) from [Kalucka _et al._](https://doi.org/10.1016/j.cell.2020.01.015)
+- [mouse_vagina](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE142212) from [Ali _et al._](https://doi.org/10.1016/j.celrep.2020.01.003)
+- [human_eye](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE135133) from [Orozco _et al._](10.1016/j.celrep.2019.12.082)
+- [human_hippocampus](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE119212) from [Zhong _et al._](https://doi.org/10.1038/s41586-019-1917-5)
+- [human_muscle](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE130646) from [Rubenstein _et al._](https://doi.org/10.1038/s41598-019-57110-6)
+- [human_intestine](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE125970) from [Wang _et al._](https://doi.org/10.1084/jem.20191130)
+- [human_kidney](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131685) from [Liao _et al._](https://doi.org/10.1038/s41597-019-0351-8)
+- [human_monocytes](https://singlecell.broadinstitute.org/single_cell/study/SCP43/atlas-of-human-blood-dendritic-cells-and-monocytes) from [Villani _et al._](https://doi.org/10.1126/science.aah4573)
 
 ## Feature types
 
