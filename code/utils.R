@@ -304,13 +304,18 @@ row_t_welch2 <- function (x, y, alternative = "two.sided", mu = 0, conf.level = 
 # Define fast t-test 1 vs all function
 FindAllMarkers2 <- function(so, clusters, type) {
   cluster_levels <- unique(so@meta.data[,clusters])
+  cluster_levels <- cluster_levels[!is.na(cluster_levels)]
   lapply(
     X = 1:length(cluster_levels),
     #X = 1:3,
     FUN = function(x) {
       print(x)
-      set1 <- so@assays$RNA@data[,so@meta.data[,clusters] == cluster_levels[x]]
-      set2 <- so@assays$RNA@data[,so@meta.data[,clusters] != cluster_levels[x]]
+      ind1 <- so@meta.data[,clusters] == cluster_levels[x]
+      ind2 <- so@meta.data[,clusters] != cluster_levels[x]
+      ind1[is.na(ind1)] = F
+      ind2[is.na(ind2)] = F
+      set1 <- so@assays$RNA@data[,ind1]
+      set2 <- so@assays$RNA@data[,ind2]
       if(type == "sparse") {
         out <- row_t_welch2(set1, set2)
       }
