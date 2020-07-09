@@ -48,6 +48,18 @@ Most raw data is in the form of (cell x gene) or (tissue x gene) count or TPM ma
 - [human_intestine](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE125970) from [Wang _et al._](https://doi.org/10.1084/jem.20191130)
 - [human_kidney](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131685) from [Liao _et al._](https://doi.org/10.1038/s41597-019-0351-8)
 - [human_monocytes](https://singlecell.broadinstitute.org/single_cell/study/SCP43/atlas-of-human-blood-dendritic-cells-and-monocytes) from [Villani _et al._](https://doi.org/10.1126/science.aah4573)
+- [human_liver](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE136103) from [Dobie _et al._](https://doi.org/10.1016/j.celrep.2019.10.024)
+- [human_fetalblood](https://doi.org/10.1038/s41586-019-1652-y) from [Popescu _et al._](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-7407)
+- [human_bonemarrow](https://doi.org/10.1172/jci.insight.124928) from [Oetjen _et al._](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE120221)
+- [mouse_brain2](https://doi.org/10.1126/science.aam8999) from [Rosenberg _et al._](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM3017261)
+- [mouse_brain3](https://doi.org/10.1016/j.cell.2018.06.021) from [Zeisel _et al._](https://http://mousebrain.org/downloads.html)
+- []() from [ _et al._]()
+- []() from [ _et al._]()
+- []() from [ _et al._]()
+- []() from [ _et al._]()
+- []() from [ _et al._]()
+- []() from [ _et al._]()
+- []() from [ _et al._]()
 
 ## Feature types
 
