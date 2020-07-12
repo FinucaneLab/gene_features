@@ -117,7 +117,7 @@ PlotAndSaveUMAPClusters <- function(so, clust_col, name, suffix = "", display = 
   p <- clusters.df %>%
     ggplot(., aes(x = UMAP_1, y = UMAP_2)) + 
     geom_point_rast(aes(color = cluster), size = 0.5, raster.dpi = raster_dpi) +
-    scale_color_manual(values = c(jdb_palette("corona"), jdb_palette("corona"))) +
+    scale_color_manual(values = c(jdb_palette("corona"), jdb_palette("corona"), jdb_palette("corona"))) +
     pretty_plot() +
     guides(col = guide_legend(ncol = 1)) +
     theme(legend.key.size = unit(0.1, 'lines'))
@@ -515,6 +515,6 @@ PlotAndSaveDEGenesOnUMAP <- function(so, demarkers, name, suffix = "", height = 
   if (display) {
     plot(p)
   }
-  ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes", suffix, ".pdf"), device = cairo_pdf, width = 7, height = height, family = "Helvetica")
+  ggsave(p + theme(legend.position = "none"), filename = paste0("../plots/", name, "/umap_degenes", suffix, ".pdf"), device = cairo_pdf, width = 7, height = height, family = "Helvetica", limitsize = FALSE)
 }
 
