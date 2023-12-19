@@ -91,6 +91,132 @@ Features can be found [here](https://github.com/FinucaneLab/gene_features/tree/m
 
 (Need to update) Run [install.R](https://github.com/FinucaneLab/gene_features/tree/master/code/install.R) to install all necessary packages. Working code for each type of data is named similarly and lives in [code](https://github.com/FinucaneLab/gene_features/tree/master/code/).
 
+## Unified script usage
+The new unified code can be run in three ways, either batched (by generating a config file), single-run (using command line arguments), or from R (using the internal function).
+Arguments used throughout are identical in name and functions, with some minor exceptions. Please see the Arguments section here for a detailed breakdown of options, and differences between batch, single-run, and R usages.
+
+### Batch
+To run a batch (multiple runs), you'll need to create a JSON config file (either manually or automated in some way), the lay-out of which follows this general principle:
+```json
+{
+ "name" : { "argumentName": "Value", "argumentName2": "Value2" },
+ "name2" : { "argumentName": "Value", "argumentName2": "Value2" }
+}
+```
+
+With `overrideDefaults` as a special key that will apply those defaults to each run in the config. Note that the order in which this is processed is as follows: `base defaults (see below) -> overrideDefaults -> per-run arguments` so any value set for a specific in `overrideDefaults` is replaced by the value set per run for the same argument name.
+This can be useful when, for instance, almost all files have Ensembl Gene IDs, but only one file has human symbols:
+```json
+{
+ "overrideDefaults": {"rowIdType": "ENSG"},
+  "name1" : { "inputData": "dataset1"},
+  "name2" : { "inputData": "dataset2"},
+  "name3" : { "inputData": ["dataset3", "dataset4"], "rowIdType": "human_symbol" }
+}
+```
+One set of features will be generated per name, so the example above would produce 3 sets of features: `name1`, `name2`, and `name3`
+Note that `inputData` cannot be set as default, and is a required argument for each run.
+
+Once the config is finished, run the following:
+```shell
+Rscript make_features_batch.R --config /path/to/config.json --name batchName --log /path/to/logfile.log
+```
+
+### Single-run
+For a single run, use `make_features.R`, the argument `name` and `inputData` are required, the rest is optional, but can be provided as necessary. Note that you should prefix every argument with `--` :
+```shell
+Rscript make_features.R --name name1 --inputData dataset1 --rowIdType ENSG
+Rscript make_features.R --name name2 --inputData dataset2 --rowIdType ENSG --noSave
+Rscript make_features.R --name name3 --inputData dataset3,dataset4 --rowIdType human_symbol --dontCompress
+```
+Please see the Arguments section for a breakdown of all arguments, or use `Rscript make_features.R -h`
+
+### R
+You can also run the internal function straight from R to incorporate it into your own pipelines, note that for this to work the files `make_features_fun.R`, `utils.R` and `make_features_argparser.R` need to be in your current working directory `setwd("code")`, then source `make_features_fun.R` and use the `make_features` function. Argument names and defaults are identical.
+```R
+source("make_features_fun.R")
+my_logger <- simpleLogger("/path/to/custom.log", loglevel="TRACE", printlevel="INFO")
+make_features(
+        name="name1",
+        logger=logger,
+        inputData="path/to/dataset1",
+        rowIdType="ENSG"
+)
+make_features(
+        name="name2",
+        logger=logger,
+        inputData="path/to/dataset2",
+        rowIdType="ENSG"
+)
+make_features(
+        name="name3",
+        logger=logger,
+        inputData=c("path/to/dataset3", "path/to/dataset3"),
+        rowIdType="human_symbol",
+        dontCompress=TRUE
+)
+```
+Note that this is the only method where you can specify your own logger (should be of class `simpleLogger` included in `utils.R`). In the other methods this logger is generated for your. Functionally that is the only difference between them.
+
+### Arguments
+- `name`:  Name of the run
+    - in `batch` mode: This is not specified, but is the key of each run instead)
+- `inputData`: Path(s) to the input dataset(s), or path to a directory which contains input datasets.
+    - in `batch` mode: If multiple datasets are used, should be a list `[]` of paths
+    - in `single-run` mode: If multiple datasets are used should be a single string separated by `,`
+    - in `R` mode: If multiple datasets are used, should be a vector `c()` of paths
+- `logger`: *only available in R mode*, object of `simpleLogger` class (see `utils.R`)
+    - default: `simpleLogger(paste0(name, ".log"))`
+- `cores`: Number of cores to use... In theory, from my testing this is not respected anywhere
+    - default: half the number of available cores (or 1)
+- `numberPcs`: Either the number of principal components to compute or `elbow` to use elbow method to determine this automatically.
+    - default: `elbow`
+- `varGenes`: Number of variable genes
+    - default: `3000`
+- `clusRes`: Cluster resolution
+    - default: `0.8`
+- `inputAnnot`: Path to input annotation (pre-defined clusters) file(s), a directory which contains them, `none` for no annotation, or `header` to use the header row of the input data to guess pre-defined clusters. If multiple files are used, should be of the same length as `inputData`. If `inputData` is multiple files, and `inputAnnot` is length 1, this 1 will be used for each input.
+    - in `batch` mode: If multiple datasets are used, should be a list `[]` of paths
+    - in `single-run` mode: If multiple datasets are used should be a single string separated by `,`
+    - in `R` mode: If multiple datasets are used, should be a vector `c()` of paths
+    - default: `none`
+- `rowAnnot`: Row-annotation file(s), a directory which contains them, or "none". Similar logic as `inputAnnot`, should be used in conjunction with `colAnnot`, typically for MatrixMarket-format files.
+    - default: `none`
+- `colAnnot`: Column-annotation file(s), a directory which contains them, or "none". Similar logic as `inputAnnot`, should be used in conjunction with `rowAnnot`, typically for MatrixMarket-format files.
+    - default: `none`
+- `isProcessed` FLAG*:  The input data is pre-processed (skip basic QC)
+- `rowIdType`: ID type of the rownames included, should be one of `ENSG`, `ENSMUSG`, `human_symbol`, `mouse_symbol`
+    - default: `human_symbol`
+- `minFeatures`: Minimum number of features to be included in the Seurat object
+    - default: `200`
+- `plotClustree` FLAG*: Create a `clustree` plot to assess cluster resolution
+- `dontCompress` FLAG*: Do not `gzip` the output data files (plots are never compressed)
+- `DEGenesPlotHeight`: Height in inches of the Dependent genes plot (this can become a large plot, hence this argument)
+    - default: `15`
+- `generateBatchId` FLAG*: Generate BATCH_ID from the multiple input files
+- `display` FLAG*: Attempt to display all plots as they are generated (likely will not work in `batch` or `single-run` modes)
+- `integrationAnchorDims`: Number of dimensions to use for integration anchors of multiple input files
+    - default: `30`
+- `useIntegrationSampleSizeReference` FLAG*: Use sample size as reference data when finding integration anchors
+- `markerGenes`: Set of marker genes to compare to, or empty to skip.
+    - in `batch` mode: If multiple datasets are used, should be a list `[]` of paths
+    - in `single-run` mode: If multiple datasets are used should be a single string separated by `,`
+    - in `R` mode: If multiple datasets are used, should be a vector `c()` of paths
+    - default: `""`
+- `outputDir`: Base directory to store output. This will create subdirectories: `features/name` and `plots/name`
+    - default: `../`
+- `geneAnnot`: Path to the gene annotation file or empty string to skip subsetting, *WARNING*: Using this will subset the output based on this file!
+    - default: `""`
+- `conversionDir`: Directory that contains the files to be used for converting to Ensembl Gene ID, or empty to skip conversion
+    - default: `""`
+
+FLAG*: The following applies to all arguments labelled FLAG*:
+- In `batch` mode: set to either `true` or `false`
+- In `single-run` mode: include the flag `--[argument name]` to enable
+- In `R` mode: set to either `TRUE` or `FALSE`
+- default: `FALSE`
+
+
 ## Analysis
 
 - Read in, QC, filter, scale, and normalize data (i.e. [plots/human\_immune/variablegenes.pdf](https://github.com/FinucaneLab/gene_features/tree/master/plots/human_immune/variablegenes.pdf))

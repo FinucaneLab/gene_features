@@ -1,4 +1,7 @@
 # Ignore data
 data/
-
-
+*.Rhistory
+*.Rproj
+.idea/
+.Rproj.user/
+logs/
