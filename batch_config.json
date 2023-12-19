@@ -1,0 +1,82 @@
+{
+  "overrideDefaults": {
+    "cores": 6, 
+    "plotClustree": false,
+    "dontCompress": true,
+    "DEGenesPlotHeight": 15,
+    "outputDir": "../",
+    "geneAnnot": "../resources/gene_annot_jun10.txt",
+    "conversionDir": "../resources"
+  },
+  "human_kidney_test": {
+    "inputData": ["../data/GSM4145204_kidney1_matrix.mtx.gz", "../data/GSM4145205_kidney2_matrix.mtx.gz", "../data/GSM4145206_kidney3_matrix.mtx.gz"],
+    "numberPcs": 30,
+    "varGenes": 1600,
+    "clusRes": 0.2,
+    "inputAnnot": "none",
+    "rowAnnot": ["../data/GSM4145204_kidney1_features.tsv.gz", "../data/GSM4145205_kidney2_features.tsv.gz", "../data/GSM4145206_kidney3_features.tsv.gz"],
+    "colAnnot": ["../data/GSM4145204_kidney1_barcodes.tsv.gz", "../data/GSM4145205_kidney2_barcodes.tsv.gz", "../data/GSM4145206_kidney3_barcodes.tsv.gz"],
+    "rowIdType": "ENSG",
+    "minFeatures": 200,
+    "generateBatchId": true,
+    "integrationAnchorDims": 30,
+    "useIntegrationSampleSizeReference": false
+  },
+  "human_heme_test": {
+    "inputData":  "../data/GSE74246_RNAseq_All_Counts.txt",
+    "numberPcs":  15,
+    "varGenes":  3000,
+    "clusRes":  0.6,
+    "inputAnnot":  "header",
+    "isProcessed":  true,
+    "rowIdType":  "human_symbol",
+    "minFeatures":  0
+  },
+  "mouse_nerve_test": {
+    "inputData":  "../data/GSE142541_mouse_matrix.mtx.gz",
+    "numberPcs":  100,
+    "varGenes":  1800,
+    "clusRes":  1.0,
+    "inputAnnot":  "../data/GSE142541_mouse_meta.csv.gz",
+    "rowAnnot":  "../data/GSE142541_mouse_features.tsv.gz",
+    "colAnnot":  "../data/GSE142541_mouse_barcodes.tsv.gz",
+    "isProcessed":  false,
+    "rowIdType":  "ENSMUSG",
+    "minFeatures":  200,
+    "markerGenes": ["CD3E","CD68","LYZ2","PTPRC","SLC16A1","CLDN1","PROX1","LYVE1","RGS5","ACTA2","SFRP4","ECM1","DPT","SMOC2","APOD","PLP1","MBP","SOX10","NGFR"]
+  },
+  "human_placenta_test" : {
+    "inputData":  "../data/GSE89497_Human_Placenta_TMP_V2.txt.gz",
+    "numberPcs":  40,
+    "varGenes":  2000,
+    "clusRes":  0.6,
+    "isProcessed":  false,
+    "rowIdType":  "human_symbol",
+    "minFeatures":  200,
+    "markerGenes": ["HLA-G","CDH1","HLA-A","VIM","CD14","CD68","THY1","CK7","TFAP2C","GATA3","CDH1","EGFR","MMP2","CG8","CSH1"]
+  },
+  "mouse_muscle2_test": {
+    "inputData": "../data/GSE143437_DeMicheli_MuSCatlas_rawdata.txt.gz",
+    "numberPcs": 40,
+    "varGenes": 2500,
+    "clusRes": 0.5,
+    "inputAnnot": "../data/GSE143437_DeMicheli_MuSCatlas_metadata.txt.gz",
+    "isProcessed": false,
+    "rowIdType": "mouse_symbol",
+    "minFeatures": 200,
+    "DEGenesPlotHeight": 20,
+    "markerGenes": ["PAX7","MYOD1","MYH1","ACTA1","PDGFRA","SCX","CDH5","MYL9","MPZ","PTN","PTPRC","CCL6","CD74","C1QA","NKG7"]
+  },
+  "human_airway_test": {
+    "inputData":  "../data/Raw_exprMatrix.tsv.gz",
+    "numberPcs":  35,
+    "varGenes":  1500,
+    "clusRes":  0.6,
+    "inputAnnot":  "../data/meta.tsv",
+    "isProcessed":  false,
+    "rowIdType":  "human_symbol",
+    "minFeatures":  200,
+    "DEGenesPlotHeight":  30,
+    "markerGenes": ["CCDC67","DEUP1","FOXN4","CDC20B","RERGL","MCAM","PDGFRB","ACTA2","MYL9","ASCL3","CFTR","FOXJ1","MUC5AC","SFTPA2","CA2","CAV1","ANXA3","CAV2"]
+  }
+}
